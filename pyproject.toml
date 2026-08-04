@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "softico-wp-guardian"
+version = "0.1.0"
+description = "Read-only WordPress fleet audit agent for Softico"
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [{name = "Softico"}]
+license = {text = "Proprietary"}
+dependencies = []
+
+[project.scripts]
+wp-guardian = "wp_guardian.cli:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
