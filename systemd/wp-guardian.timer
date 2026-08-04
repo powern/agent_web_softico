@@ -1,0 +1,11 @@
+[Unit]
+Description=Run Softico WordPress Guardian daily
+
+[Timer]
+OnCalendar=*-*-* 03:30:00
+Persistent=true
+RandomizedDelaySec=15m
+Unit=wp-guardian.service
+
+[Install]
+WantedBy=timers.target
