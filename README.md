@@ -47,7 +47,7 @@ python3 -m compileall -q src tests
 git clone https://github.com/powern/agent_web_softico.git
 cd agent_web_softico
 git checkout agent/mvp-read-only-audit
-sudo ./scripts/install.sh admin
+sudo ./scripts/install.sh
 ```
 
 The installer does not enable or start the timer. Review `/etc/wp-guardian/guardian.toml` before the first run.
