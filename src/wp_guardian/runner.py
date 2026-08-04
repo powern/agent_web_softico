@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import os
+import pwd
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -27,6 +29,18 @@ class CommandRunner:
     def __init__(self, timeout: int = 60) -> None:
         self.timeout = timeout
 
+    @staticmethod
+    def runtime_env() -> dict[str, str]:
+        account = pwd.getpwuid(os.getuid())
+        return {
+            "PATH": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+            "HOME": account.pw_dir,
+            "USER": account.pw_name,
+            "LOGNAME": account.pw_name,
+            "LANG": "C.UTF-8",
+            "LC_ALL": "C.UTF-8",
+        }
+
     def run(
         self,
         args: Sequence[str],
@@ -43,7 +57,7 @@ class CommandRunner:
                 text=True,
                 timeout=timeout or self.timeout,
                 check=False,
-                env={"PATH": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"},
+                env=self.runtime_env(),
             )
             return CommandResult(
                 command,
