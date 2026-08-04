@@ -19,7 +19,6 @@ class WordPress:
     def wp(self, site_path: Path, *args: str, timeout: int | None = None) -> CommandResult:
         command = [
             self.config.wp_cli,
-            "--allow-root",
             f"--path={site_path}",
             "--skip-plugins",
             "--skip-themes",
