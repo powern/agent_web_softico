@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-RUNTIME_USER="${1:-admin}"
+RUNTIME_USER="admin"
 
 if [[ ${EUID} -ne 0 ]]; then
   echo "Run the installer with sudo/root privileges" >&2
@@ -9,7 +9,7 @@ if [[ ${EUID} -ne 0 ]]; then
 fi
 
 if ! id "$RUNTIME_USER" >/dev/null 2>&1; then
-  echo "Runtime user does not exist: $RUNTIME_USER" >&2
+  echo "Required runtime user does not exist: $RUNTIME_USER" >&2
   exit 1
 fi
 
