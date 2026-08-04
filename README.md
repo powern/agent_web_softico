@@ -16,18 +16,23 @@
 - detects world-writable files;
 - stores audit history in SQLite;
 - writes human-readable and JSON reports;
-- includes hardened systemd service and timer examples.
+- includes a hardened systemd service that runs as the existing `admin` account.
 
 ## Safety model
 
 Version `0.1.0` is audit-only. It has no code paths for automatic updates, file deletion, quarantine, user deletion, configuration changes, IP blocking, or rollback.
+
+The agent never runs WP-CLI as root and does not use `--allow-root`. The systemd service runs as `admin:admin`, which already owns and manages the hosted WordPress files. Root privileges are needed only once for installing files under `/opt`, `/etc`, `/usr/local/bin`, and `/etc/systemd/system`.
+
+Persistent state and reports are stored in `/var/lib/wp-guardian`, owned by `admin:admin`. The program code and configuration remain root-owned and read-only to the runtime account.
 
 ## Requirements
 
 - Linux with Python 3.11+
 - WP-CLI
 - curl
-- root access is currently expected because the existing server workflow uses `wp --allow-root`
+- existing `admin` user with access to `/home/admin/web/*/public_html`
+- sudo/root access only for installation
 
 ## Development test
 
@@ -41,17 +46,34 @@ python3 -m compileall -q src tests
 ```bash
 git clone https://github.com/powern/agent_web_softico.git
 cd agent_web_softico
-sudo ./scripts/install.sh
+git checkout agent/mvp-read-only-audit
+sudo ./scripts/install.sh admin
 ```
 
-Review `/etc/wp-guardian/guardian.toml` before the first run.
+The installer does not enable or start the timer. Review `/etc/wp-guardian/guardian.toml` before the first run.
 
 ## First server test
 
+Run the initial checks explicitly as `admin`:
+
 ```bash
-wp-guardian --config /etc/wp-guardian/guardian.toml sites
-wp-guardian --config /etc/wp-guardian/guardian.toml audit --domain softico.ua
-wp-guardian --config /etc/wp-guardian/guardian.toml report
+sudo -u admin wp-guardian --config /etc/wp-guardian/guardian.toml sites
+sudo -u admin wp-guardian --config /etc/wp-guardian/guardian.toml audit --domain softico.ua
+sudo -u admin wp-guardian --config /etc/wp-guardian/guardian.toml report
+```
+
+To inspect the exact systemd identity before starting anything:
+
+```bash
+systemctl cat wp-guardian.service
+grep -E '^(User|Group)=' /etc/systemd/system/wp-guardian.service
+```
+
+Expected values:
+
+```text
+User=admin
+Group=admin
 ```
 
 The audit command returns exit code `2` when a HIGH or CRITICAL finding exists. This is useful for systemd and monitoring integrations.
@@ -67,7 +89,7 @@ The audit command returns exit code `2` when a HIGH or CRITICAL finding exists. 
 ## Roadmap
 
 1. validate read-only results against the existing manual audit;
-2. add database backup and single-domain guarded updates;
-3. add reversible quarantine with manifests;
+2. add database backup and single-domain guarded updates under `admin`;
+3. add reversible quarantine with manifests under `admin` ownership;
 4. add notifications and structured log ingestion;
 5. only after production validation, consider scheduled safe updates.
