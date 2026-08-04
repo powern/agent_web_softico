@@ -5,19 +5,30 @@ Wants=network-online.target
 
 [Service]
 Type=oneshot
-User=root
-Group=root
+User=admin
+Group=admin
+WorkingDirectory=/home/admin
 ExecStart=/usr/local/bin/wp-guardian --config /etc/wp-guardian/guardian.toml audit
+UMask=0027
 Nice=10
 IOSchedulingClass=best-effort
 IOSchedulingPriority=6
 PrivateTmp=true
+PrivateDevices=true
 NoNewPrivileges=true
-ProtectSystem=full
+ProtectSystem=strict
 ProtectHome=read-only
+StateDirectory=wp-guardian
+StateDirectoryMode=0750
 ReadWritePaths=/var/lib/wp-guardian
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
 LockPersonality=true
 RestrictRealtime=true
+RestrictSUIDSGID=true
+CapabilityBoundingSet=
+AmbientCapabilities=
 
 [Install]
 WantedBy=multi-user.target
