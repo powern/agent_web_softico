@@ -1,0 +1,51 @@
+[general]
+sites_root = "/home/admin/web"
+state_dir = "/var/lib/wp-guardian"
+report_dir = "/var/lib/wp-guardian/reports"
+wp_cli = "/usr/local/bin/wp"
+curl = "/usr/bin/curl"
+command_timeout = 60
+http_timeout = 20
+max_scan_files = 50000
+
+[sites]
+include = [
+  "amica.ua",
+  "bitdefender.ua",
+  "data.softico.ua",
+  "dsdrive.com.ua",
+  "planeta-it.kiev.ua",
+  "softi.co",
+  "softico.ua",
+  "solidworks.softico.ua",
+  "teamviewer.softico.ua",
+  "tech-future.eu",
+]
+exclude = [
+  "dev.softico.ua",
+  "dev.amica.ua",
+  "hostico.com.ua",
+  "senhasegura.com.ua",
+  "unity.softico.ua",
+]
+
+[audit]
+check_http = true
+check_updates = true
+verify_core_checksums = true
+verify_plugin_checksums = true
+scan_uploads_php = true
+check_admin_users = true
+check_world_writable = true
+
+[policy]
+allowed_admin_logins = []
+allow_php_upload_paths = [
+  "cache/wpml/twig/",
+  "wpseo-redirects/index.php",
+  "custom-css-js/index.php",
+  "wpforms/cache/index.php",
+  "wpforms/cache/templates/index.php",
+  "wpallexport/",
+  "wpallimport/",
+]
