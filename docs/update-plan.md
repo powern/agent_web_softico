@@ -14,15 +14,16 @@ Machine-readable output is available with `--json`.
 
 ## Ready conditions
 
-The plan reports `Ready: YES` only when all of the following are true:
+The plan reports `Ready: YES` when the safety preflight has no blockers. The following must be true:
 
 1. the domain is explicitly configured and not excluded;
 2. the HTTPS preflight returns a status from 200 through 399;
 3. the current WordPress core version can be read;
 4. WordPress core checksum verification succeeds;
 5. the newest private database backup passes full Guardian verification;
-6. at least one plugin or theme update is available;
-7. WP-CLI provides an exact `update_version` for every planned item.
+6. when updates are available, WP-CLI provides an exact `update_version` for every planned item.
+
+A healthy site with no available plugin or theme updates also reports `Ready: YES`, `Updates: 0`, and a warning that there is currently nothing to update. `Ready` describes the safety preflight; it does not imply that an update action exists.
 
 The plan includes the verified backup directory and age, current and target versions, component status, redirect target, response time, blockers and warnings.
 
