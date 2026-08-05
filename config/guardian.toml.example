@@ -53,6 +53,10 @@ allow_php_upload_paths = [
 ]
 allow_public_backup_paths = []
 
+[backup]
+directory = "/home/admin/private-backups/wp-guardian"
+timeout = 900
+
 [mail]
 enabled = true
 recipients = ["skr@softico.ua"]
