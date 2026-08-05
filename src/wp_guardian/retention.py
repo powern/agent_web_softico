@@ -37,10 +37,10 @@ def business_day_cutoff(
 
 
 def prune_report_files(report_dir: Path, cutoff: datetime) -> int:
-    """Delete timestamped audit reports older than cutoff.
+    """Delete timestamped audit and maintenance reports older than cutoff.
 
     The latest.txt and latest.json convenience copies are never matched or
-    removed. Only files created by write_report are eligible.
+    removed. Only files created by Guardian report writers are eligible.
     """
     if cutoff.tzinfo is None:
         raise ValueError("cutoff must be timezone-aware")
@@ -49,7 +49,12 @@ def prune_report_files(report_dir: Path, cutoff: datetime) -> int:
 
     removed = 0
     cutoff_timestamp = cutoff.timestamp()
-    for pattern in ("audit-*.txt", "audit-*.json"):
+    for pattern in (
+        "audit-*.txt",
+        "audit-*.json",
+        "maintenance-*.txt",
+        "maintenance-*.json",
+    ):
         for path in report_dir.glob(pattern):
             try:
                 if path.stat().st_mtime < cutoff_timestamp:
