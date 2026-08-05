@@ -61,7 +61,14 @@ class WordPress:
         )
 
     def list_updates(self, site_path: Path, kind: str) -> list[dict[str, Any]]:
-        result = self.wp(site_path, kind, "list", "--update=available", "--format=json")
+        result = self.wp(
+            site_path,
+            kind,
+            "list",
+            "--update=available",
+            "--fields=name,status,version,update_version",
+            "--format=json",
+        )
         if not result.ok:
             return []
         data = json.loads(result.stdout or "[]")
