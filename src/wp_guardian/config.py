@@ -28,6 +28,7 @@ class GuardianConfig:
     command_timeout: int = 60
     http_timeout: int = 20
     backup_timeout: int = 900
+    backup_keep_last: int = 3
     max_scan_files: int = 200000
     retention_business_days: int = 3
     include: set[str] = field(default_factory=set)
@@ -69,6 +70,10 @@ def load_config(path: Path) -> GuardianConfig:
     if backup_timeout < 60:
         raise ValueError("backup.timeout must be at least 60 seconds")
 
+    backup_keep_last = int(backup.get("keep_last", 3))
+    if backup_keep_last < 1:
+        raise ValueError("backup.keep_last must be at least 1")
+
     config = GuardianConfig(
         sites_root=Path(general.get("sites_root", "/home/admin/web")),
         state_dir=Path(general.get("state_dir", "/var/lib/wp-guardian")),
@@ -83,6 +88,7 @@ def load_config(path: Path) -> GuardianConfig:
         command_timeout=int(general.get("command_timeout", 60)),
         http_timeout=int(general.get("http_timeout", 20)),
         backup_timeout=backup_timeout,
+        backup_keep_last=backup_keep_last,
         max_scan_files=int(general.get("max_scan_files", 200000)),
         retention_business_days=retention_business_days,
         include=set(sites.get("include", [])),
