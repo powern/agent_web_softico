@@ -111,6 +111,37 @@ sendmail = "/usr/sbin/sendmail"
 EOF
 fi
 
+if ! grep -Eq '^[[:space:]]*retention_business_days[[:space:]]*=' "$CONFIG_FILE"; then
+  # Add the retention setting inside [general] without replacing any existing
+  # configuration. The Python migration is used instead of brittle line-based
+  # editing so it also works when max_scan_files is absent or reordered.
+  "$PYTHON_BIN" - "$CONFIG_FILE" <<'PY'
+from pathlib import Path
+import sys
+
+path = Path(sys.argv[1])
+text = path.read_text(encoding="utf-8")
+lines = text.splitlines()
+
+try:
+    general_index = next(
+        index for index, line in enumerate(lines)
+        if line.strip() == "[general]"
+    )
+except StopIteration as exc:
+    raise SystemExit("guardian.toml is missing the required [general] section") from exc
+
+insert_at = len(lines)
+for index in range(general_index + 1, len(lines)):
+    if lines[index].strip().startswith("["):
+        insert_at = index
+        break
+
+lines.insert(insert_at, "retention_business_days = 3")
+path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
+PY
+fi
+
 chown root:"$RUNTIME_GROUP" "$CONFIG_FILE"
 chmod 0640 "$CONFIG_FILE"
 
@@ -135,6 +166,7 @@ echo "Installed in read-only mode."
 echo "Runtime account: $RUNTIME_USER:$RUNTIME_GROUP"
 echo "Root is used only for installation; audits run as $RUNTIME_USER."
 echo "Successful systemd audits trigger wp-guardian-mail.service."
+echo "Audit reports and SQLite run history are retained for 3 business days by default."
 echo "Run as $RUNTIME_USER:"
 echo "  sudo -u $RUNTIME_USER wp-guardian --config $CONFIG_FILE sites"
 echo "  sudo -u $RUNTIME_USER wp-guardian --config $CONFIG_FILE audit --domain softico.ua"
