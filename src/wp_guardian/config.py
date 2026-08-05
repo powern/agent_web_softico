@@ -22,10 +22,12 @@ class GuardianConfig:
     sites_root: Path = Path("/home/admin/web")
     state_dir: Path = Path("/var/lib/wp-guardian")
     report_dir: Path = Path("/var/lib/wp-guardian/reports")
+    backup_dir: Path = Path("/home/admin/private-backups/wp-guardian")
     wp_cli: str = "wp"
     curl: str = "curl"
     command_timeout: int = 60
     http_timeout: int = 20
+    backup_timeout: int = 900
     max_scan_files: int = 200000
     retention_business_days: int = 3
     include: set[str] = field(default_factory=set)
@@ -56,10 +58,16 @@ def load_config(path: Path) -> GuardianConfig:
     sites = raw.get("sites", {})
     audit = raw.get("audit", {})
     policy = raw.get("policy", {})
+    backup = raw.get("backup", {})
     mail = raw.get("mail", {})
+
     retention_business_days = int(general.get("retention_business_days", 3))
     if retention_business_days < 1:
         raise ValueError("general.retention_business_days must be at least 1")
+
+    backup_timeout = int(backup.get("timeout", 900))
+    if backup_timeout < 60:
+        raise ValueError("backup.timeout must be at least 60 seconds")
 
     config = GuardianConfig(
         sites_root=Path(general.get("sites_root", "/home/admin/web")),
@@ -67,10 +75,14 @@ def load_config(path: Path) -> GuardianConfig:
         report_dir=Path(
             general.get("report_dir", "/var/lib/wp-guardian/reports")
         ),
+        backup_dir=Path(
+            backup.get("directory", "/home/admin/private-backups/wp-guardian")
+        ),
         wp_cli=str(general.get("wp_cli", "wp")),
         curl=str(general.get("curl", "curl")),
         command_timeout=int(general.get("command_timeout", 60)),
         http_timeout=int(general.get("http_timeout", 20)),
+        backup_timeout=backup_timeout,
         max_scan_files=int(general.get("max_scan_files", 200000)),
         retention_business_days=retention_business_days,
         include=set(sites.get("include", [])),
