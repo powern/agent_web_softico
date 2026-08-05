@@ -74,6 +74,58 @@ class WordPress:
         data = json.loads(result.stdout or "[]")
         return data if isinstance(data, list) else []
 
+    def component_info(
+        self,
+        site_path: Path,
+        kind: str,
+        name: str,
+    ) -> dict[str, Any] | None:
+        result = self.wp(
+            site_path,
+            kind,
+            "get",
+            name,
+            "--fields=name,status,version",
+            "--format=json",
+        )
+        if not result.ok:
+            return None
+        data = json.loads(result.stdout or "null")
+        return data if isinstance(data, dict) else None
+
+    def update_plugin(
+        self,
+        site_path: Path,
+        name: str,
+        target_version: str,
+        *,
+        timeout: int | None = None,
+    ) -> CommandResult:
+        return self.wp(
+            site_path,
+            "plugin",
+            "update",
+            name,
+            f"--version={target_version}",
+            "--format=json",
+            timeout=timeout,
+        )
+
+    def verify_plugin_checksum(
+        self,
+        site_path: Path,
+        name: str,
+        *,
+        timeout: int | None = None,
+    ) -> CommandResult:
+        return self.wp(
+            site_path,
+            "plugin",
+            "verify-checksums",
+            name,
+            timeout=timeout,
+        )
+
     def list_plugins(self, site_path: Path) -> list[dict[str, Any]]:
         result = self.wp(
             site_path,
