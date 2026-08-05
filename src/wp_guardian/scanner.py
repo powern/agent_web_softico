@@ -80,26 +80,27 @@ def scan_uploads(site_path: Path, config: GuardianConfig, audit: SiteAudit) -> N
     complete = True
 
     for path in uploads.rglob("*"):
-        # Directories do not consume the file-scan budget. The previous
-        # implementation counted every directory entry and could stop early on
-        # deeply nested but otherwise harmless upload trees.
         if not path.is_file():
             continue
-
-        if scanned_files >= config.max_scan_files:
-            complete = False
-            audit.add(
-                "uploads_php",
-                "MEDIUM",
-                "Uploads scan stopped at configured file limit",
-                limit=config.max_scan_files,
-                scanned_files=scanned_files,
-            )
-            break
 
         scanned_files += 1
         if not is_php_like(path):
             continue
+
+        # The safety budget applies only to executable candidates. Counting all
+        # ordinary media files made large but healthy WordPress libraries stop
+        # before the scanner reached later directories.
+        if php_files >= config.max_scan_files:
+            complete = False
+            audit.add(
+                "uploads_php",
+                "MEDIUM",
+                "Uploads scan stopped at configured PHP candidate limit",
+                limit=config.max_scan_files,
+                scanned_files=scanned_files,
+                php_files=php_files,
+            )
+            break
 
         php_files += 1
         relative = str(path.relative_to(uploads))
@@ -145,10 +146,19 @@ def scan_uploads(site_path: Path, config: GuardianConfig, audit: SiteAudit) -> N
 
 def scan_world_writable(site_path: Path, config: GuardianConfig, audit: SiteAudit) -> None:
     found = scanned = 0
+    complete = True
     for path in site_path.rglob("*"):
         if not path.is_file():
             continue
         if scanned >= config.max_scan_files:
+            complete = False
+            audit.add(
+                "permissions",
+                "LOW",
+                "World-writable scan stopped at configured file limit",
+                limit=config.max_scan_files,
+                scanned_files=scanned,
+            )
             break
         scanned += 1
         try:
@@ -164,4 +174,8 @@ def scan_world_writable(site_path: Path, config: GuardianConfig, audit: SiteAudi
                 path=str(path),
                 mode=oct(mode & 0o777),
             )
-    audit.facts["world_writable"] = {"scanned": scanned, "found": found}
+    audit.facts["world_writable"] = {
+        "scanned": scanned,
+        "found": found,
+        "complete": complete,
+    }
