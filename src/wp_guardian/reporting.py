@@ -48,6 +48,22 @@ def update_label(item: dict) -> str:
     return f"{name} {current} -> target version not provided"
 
 
+def finding_label(finding: dict) -> str:
+    prefix = f"- {finding['severity']} {finding['check']}:"
+    details = finding.get("details", {})
+
+    if finding.get("check") == "permissions" and details.get("path"):
+        mode = details.get("mode", "mode-unknown")
+        return f"{prefix} {mode} {details['path']}"
+
+    if finding.get("check") == "uploads_php" and details.get("path"):
+        patterns = details.get("patterns", [])
+        suffix = f" patterns={','.join(patterns)}" if patterns else ""
+        return f"{prefix} {details['path']}{suffix}"
+
+    return f"{prefix} {finding['message']}"
+
+
 def render_text(report: dict) -> str:
     summary = report["summary"]
     lines = [
@@ -107,9 +123,7 @@ def render_text(report: dict) -> str:
             )
         if site["findings"]:
             for finding in site["findings"]:
-                lines.append(
-                    f"- {finding['severity']} {finding['check']}: {finding['message']}"
-                )
+                lines.append(finding_label(finding))
         else:
             lines.append("- OK: no findings")
         lines.append("")
