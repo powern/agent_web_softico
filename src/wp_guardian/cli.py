@@ -9,6 +9,7 @@ from pathlib import Path
 from . import __version__
 from .audit import audit_all
 from .backup import BackupError, create_database_backup
+from .backup_verify import verify_database_backup
 from .config import load_config
 from .discovery import discover_sites
 from .mailer import send_latest_report
@@ -32,6 +33,15 @@ def parser() -> argparse.ArgumentParser:
     audit.add_argument("--json", action="store_true", help="Print JSON report")
     backup = sub.add_parser("backup", help="Create a private database backup for one domain")
     backup.add_argument("--domain", required=True, help="Exact configured domain to back up")
+    verify = sub.add_parser(
+        "verify-backup",
+        help="Verify the latest or selected private database backup",
+    )
+    verify.add_argument("--domain", required=True, help="Exact configured domain")
+    verify.add_argument(
+        "--backup",
+        help="Backup directory name; defaults to the newest timestamped backup",
+    )
     report = sub.add_parser("report", help="Print the latest report")
     report.add_argument("--json", action="store_true", help="Print latest JSON report")
     sub.add_parser("send-report", help="Send the latest text report by local mail transport")
@@ -51,28 +61,52 @@ def main(argv: list[str] | None = None) -> int:
             print(f"{site.domain}\t{site.path}")
         return 0
 
-    if args.command == "backup":
+    if args.command in {"backup", "verify-backup"}:
         matching = [site for site in discover_sites(config) if site.domain == args.domain]
         if len(matching) != 1:
             print(f"Domain not found or excluded: {args.domain}", file=sys.stderr)
             return 1
         wordpress = WordPress(config, CommandRunner(config.backup_timeout))
+
+        if args.command == "backup":
+            try:
+                result = create_database_backup(config, matching[0], wordpress)
+            except (BackupError, OSError) as exc:
+                print(f"Backup error: {exc}", file=sys.stderr)
+                return 1
+            print(f"Database backup completed for {result.domain}")
+            print(f"Directory: {result.directory}")
+            print(f"Database: {result.database_path}")
+            print(f"Manifest: {result.manifest_path}")
+            print(f"Size: {result.size}")
+            print(f"SHA256: {result.sha256}")
+            print(
+                "Backup retention: "
+                f"keep_last={config.backup_keep_last}, "
+                f"removed={result.backups_removed}"
+            )
+            return 0
+
         try:
-            result = create_database_backup(config, matching[0], wordpress)
+            result = verify_database_backup(
+                config,
+                matching[0],
+                wordpress,
+                backup_name=args.backup,
+            )
         except (BackupError, OSError) as exc:
-            print(f"Backup error: {exc}", file=sys.stderr)
+            print(f"Backup verification error: {exc}", file=sys.stderr)
             return 1
-        print(f"Database backup completed for {result.domain}")
+        print(f"Database backup verified for {result.domain}")
         print(f"Directory: {result.directory}")
-        print(f"Database: {result.database_path}")
-        print(f"Manifest: {result.manifest_path}")
-        print(f"Size: {result.size}")
+        print(f"Created: {result.created_at}")
+        print(f"Compressed size: {result.compressed_size}")
+        print(f"Decompressed size: {result.decompressed_size}")
         print(f"SHA256: {result.sha256}")
-        print(
-            "Backup retention: "
-            f"keep_last={config.backup_keep_last}, "
-            f"removed={result.backups_removed}"
-        )
+        print(f"Table prefix: {result.table_prefix}")
+        print(f"CREATE TABLE statements: {result.create_table_statements}")
+        print(f"Matching WordPress tables: {result.matching_tables}")
+        print(f"INSERT statements: {result.insert_statements}")
         return 0
 
     if args.command == "report":
