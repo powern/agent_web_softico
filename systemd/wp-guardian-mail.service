@@ -1,0 +1,25 @@
+[Unit]
+Description=Email the latest Softico WordPress Guardian report
+After=wp-guardian.service exim4.service
+ConditionPathExists=/var/lib/wp-guardian/reports/latest.txt
+
+[Service]
+Type=oneshot
+User=admin
+Group=admin
+WorkingDirectory=/home/admin
+ExecStart=/usr/local/bin/wp-guardian --config /etc/wp-guardian/guardian.toml send-report
+UMask=0077
+Nice=10
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=full
+ProtectHome=read-only
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+LockPersonality=true
+RestrictRealtime=true
+
+[Install]
+WantedBy=multi-user.target
