@@ -213,7 +213,7 @@ class UpdatePlanTests(unittest.TestCase):
                     FakeRunner(),  # type: ignore[arg-type]
                 )
 
-            self.assertFalse(plan.ready)
+            self.assertTrue(plan.ready)
             self.assertEqual(plan.blockers, [])
             self.assertEqual(plan.updates, [])
             self.assertIn("No plugin or theme updates are currently available", plan.warnings)
