@@ -33,6 +33,7 @@ class GuardianConfig:
     checks: dict[str, bool] = field(default_factory=dict)
     allowed_admin_logins: set[str] = field(default_factory=set)
     allow_php_upload_paths: tuple[str, ...] = ()
+    allow_public_backup_paths: tuple[str, ...] = ()
     mail_enabled: bool = False
     mail_recipients: tuple[str, ...] = ()
     mail_subject_prefix: str = "[WP Guardian]"
@@ -79,6 +80,10 @@ def load_config(path: Path) -> GuardianConfig:
         allow_php_upload_paths=string_tuple(
             policy.get("allow_php_upload_paths", []),
             "policy.allow_php_upload_paths",
+        ),
+        allow_public_backup_paths=string_tuple(
+            policy.get("allow_public_backup_paths", []),
+            "policy.allow_public_backup_paths",
         ),
         mail_enabled=bool(mail.get("enabled", False)),
         mail_recipients=string_tuple(mail.get("recipients", []), "mail.recipients"),
