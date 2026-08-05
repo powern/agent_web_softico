@@ -340,19 +340,22 @@ def _restore_component(source_path: Path, archive_path: Path) -> None:
             if path.is_symlink() or (not path.is_dir() and not path.is_file()):
                 raise UpdateApplyError(f"Restored component contains an unsafe entry: {path}")
 
-        os.replace(source_path, displaced)
-        moved_current = True
+        if source_path.exists() or source_path.is_symlink():
+            os.replace(source_path, displaced)
+            moved_current = True
         try:
             os.replace(restored, source_path)
         except Exception:
-            os.replace(displaced, source_path)
-            moved_current = False
+            if moved_current:
+                os.replace(displaced, source_path)
+                moved_current = False
             raise
-        if displaced.is_dir():
-            shutil.rmtree(displaced)
-        else:
-            displaced.unlink()
-        moved_current = False
+        if moved_current:
+            if displaced.is_dir():
+                shutil.rmtree(displaced)
+            else:
+                displaced.unlink()
+            moved_current = False
     finally:
         shutil.rmtree(temporary, ignore_errors=True)
         if moved_current and displaced.exists() and not source_path.exists():
@@ -456,7 +459,7 @@ def apply_prepared_plugin_update(
             if not checksum.ok:
                 output = "\n".join(filter(None, [checksum.stdout, checksum.stderr]))
                 raise UpdateApplyError(
-                    f"Updated plugin checksum verification failed"
+                    "Updated plugin checksum verification failed"
                     + (f": {output}" if output else "")
                 )
             checksum_verified = True
