@@ -61,6 +61,11 @@ def finding_label(finding: dict) -> str:
         suffix = f" patterns={','.join(patterns)}" if patterns else ""
         return f"{prefix} {details['path']}{suffix}"
 
+    if finding.get("check") == "public_backups" and details.get("path"):
+        kind = details.get("kind", "unknown")
+        size = details.get("size", -1)
+        return f"{prefix} kind={kind} size={size} {details['path']}"
+
     return f"{prefix} {finding['message']}"
 
 
@@ -103,6 +108,14 @@ def render_text(report: dict) -> str:
                 f"php={uploads.get('php_files', 0)}, "
                 f"suspicious={uploads.get('suspicious', 0)}, "
                 f"complete={uploads.get('complete', False)}"
+            )
+        public_backups = facts.get("public_backups", {})
+        if public_backups:
+            lines.append(
+                "Public backup scan: "
+                f"scanned={public_backups.get('scanned', 0)}, "
+                f"found={public_backups.get('found', 0)}, "
+                f"complete={public_backups.get('complete', False)}"
             )
         permissions = facts.get("world_writable", {})
         if permissions:
