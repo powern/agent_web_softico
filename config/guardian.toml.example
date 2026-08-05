@@ -7,6 +7,7 @@ curl = "/usr/bin/curl"
 command_timeout = 60
 http_timeout = 20
 max_scan_files = 200000
+retention_business_days = 3
 
 [sites]
 include = [
