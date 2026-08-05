@@ -5,8 +5,9 @@ import json
 from .config import GuardianConfig
 from .discovery import discover_sites
 from .models import Site, SiteAudit
+from .public_backups import scan_public_backups
 from .runner import CommandRunner
-from .scanner import scan_public_backups, scan_uploads, scan_world_writable
+from .scanner import scan_uploads, scan_world_writable
 from .storage import Storage
 from .wordpress import WordPress
 
