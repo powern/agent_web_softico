@@ -35,8 +35,12 @@ fi
 install -d -o root -g root -m 0755 "$INSTALL_ROOT"
 rm -rf "$VENV_NEW"
 
-if ! "$PYTHON_BIN" -m venv "$VENV_NEW"; then
+cleanup_failed_install() {
   rm -rf "$VENV_NEW"
+}
+trap cleanup_failed_install ERR
+
+if ! "$PYTHON_BIN" -m venv "$VENV_NEW"; then
   cat >&2 <<EOF
 Unable to create a Python virtual environment.
 
@@ -52,7 +56,18 @@ EOF
   exit 1
 fi
 
-"$VENV_NEW/bin/pip" install --no-build-isolation .
+# Use the normal PEP 517 build flow. pyproject.toml declares setuptools and
+# wheel as build requirements, so pip creates an isolated build environment
+# instead of relying on packages preinstalled inside the fresh venv.
+if ! "$VENV_NEW/bin/python" -m pip install .; then
+  cat >&2 <<'EOF'
+Unable to build/install softico-wp-guardian.
+
+Check that the server can reach the configured Python package index. The build
+requires setuptools and wheel, declared in pyproject.toml.
+EOF
+  exit 1
+fi
 
 rm -rf "$VENV_OLD"
 if [[ -d "$VENV_DIR" ]]; then
@@ -60,6 +75,7 @@ if [[ -d "$VENV_DIR" ]]; then
 fi
 mv "$VENV_NEW" "$VENV_DIR"
 rm -rf "$VENV_OLD"
+trap - ERR
 
 ln -sfn "$VENV_DIR/bin/wp-guardian" /usr/local/bin/wp-guardian
 
