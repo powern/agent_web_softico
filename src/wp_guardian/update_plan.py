@@ -159,7 +159,9 @@ def build_update_plan(
     if not updates:
         warnings.append("No plugin or theme updates are currently available")
 
-    ready = not blockers and bool(updates)
+    # Ready describes the safety preflight, not whether there is work to perform.
+    # A fully healthy site with zero updates is ready and simply has no update actions.
+    ready = not blockers
     return UpdatePlanResult(
         domain=site.domain,
         generated_at=generated_at.isoformat(),
