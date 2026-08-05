@@ -33,11 +33,17 @@ def build_message(
     host = (hostname or socket.getfqdn() or socket.gethostname() or "localhost").strip()
     safe_host = re.sub(r"[^A-Za-z0-9.-]", "-", host) or "localhost"
     prefix = config.mail_subject_prefix.strip() or "[WP Guardian]"
+    first_line = report_text.splitlines()[0] if report_text.splitlines() else ""
+    report_kind = (
+        "maintenance report"
+        if "MAINTENANCE" in first_line.upper()
+        else "audit report"
+    )
 
     message = EmailMessage(policy=SMTP)
     message["To"] = ", ".join(recipients)
     message["From"] = f"wp-guardian@{safe_host}"
-    message["Subject"] = f"{prefix} {safe_host} audit report"
+    message["Subject"] = f"{prefix} {safe_host} {report_kind}"
     message["Auto-Submitted"] = "auto-generated"
     message.set_content(report_text, subtype="plain", charset="utf-8")
     return message.as_bytes()
