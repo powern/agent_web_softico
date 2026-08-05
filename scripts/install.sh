@@ -7,6 +7,7 @@ INSTALL_ROOT="/opt/wp-guardian"
 VENV_DIR="$INSTALL_ROOT/venv"
 VENV_OLD="$INSTALL_ROOT/venv.old"
 CONFIG_FILE="/etc/wp-guardian/guardian.toml"
+BACKUP_DIR="/home/admin/private-backups/wp-guardian"
 
 if [[ ${EUID} -ne 0 ]]; then
   echo "Run the installer with sudo/root privileges" >&2
@@ -93,6 +94,9 @@ install -d -o root -g "$RUNTIME_GROUP" -m 0750 /etc/wp-guardian
 install -d -o "$RUNTIME_USER" -g "$RUNTIME_GROUP" -m 0750 \
   /var/lib/wp-guardian \
   /var/lib/wp-guardian/reports
+install -d -o "$RUNTIME_USER" -g "$RUNTIME_GROUP" -m 0700 \
+  "$RUNTIME_HOME/private-backups" \
+  "$BACKUP_DIR"
 
 if [[ ! -f "$CONFIG_FILE" ]]; then
   install -o root -g "$RUNTIME_GROUP" -m 0640 \
@@ -108,6 +112,15 @@ enabled = true
 recipients = ["skr@softico.ua"]
 subject_prefix = "[WP Guardian]"
 sendmail = "/usr/sbin/sendmail"
+EOF
+fi
+
+if ! grep -Eq '^[[:space:]]*\[backup\][[:space:]]*$' "$CONFIG_FILE"; then
+  cat >> "$CONFIG_FILE" <<'EOF'
+
+[backup]
+directory = "/home/admin/private-backups/wp-guardian"
+timeout = 900
 EOF
 fi
 
@@ -162,12 +175,14 @@ if [[ ! -x /usr/sbin/sendmail ]]; then
 fi
 
 # The service and timer are intentionally not enabled or started automatically.
-echo "Installed in read-only mode."
+echo "Installed in audit plus explicit single-domain backup mode."
 echo "Runtime account: $RUNTIME_USER:$RUNTIME_GROUP"
-echo "Root is used only for installation; audits run as $RUNTIME_USER."
+echo "Root is used only for installation and isolated local mail submission."
+echo "Audits and manual database backups run as $RUNTIME_USER."
 echo "Successful systemd audits trigger wp-guardian-mail.service."
 echo "Audit reports and SQLite run history are retained for 3 business days by default."
 echo "Run as $RUNTIME_USER:"
 echo "  sudo -u $RUNTIME_USER wp-guardian --config $CONFIG_FILE sites"
 echo "  sudo -u $RUNTIME_USER wp-guardian --config $CONFIG_FILE audit --domain softico.ua"
+echo "  sudo -u $RUNTIME_USER wp-guardian --config $CONFIG_FILE backup --domain softico.ua"
 echo "  sudo -u $RUNTIME_USER wp-guardian --config $CONFIG_FILE send-report"
