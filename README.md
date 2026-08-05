@@ -12,6 +12,7 @@
 - verifies official WordPress.org plugin checksums without flooding logs with expected 404 responses for premium/private plugins;
 - scans `wp-content/uploads` for executable files with allow-rules for known WPML, WPForms, Yoast and import/export service files;
 - detects high-risk PHP constructs in unexpected uploads;
+- detects database dumps, site-backup archives and sensitive configuration copies inside public web roots;
 - lists administrators and establishes an SQLite baseline for detecting newly appearing administrators;
 - detects world-writable files;
 - stores audit history in SQLite;
@@ -93,6 +94,29 @@ Group=admin
 
 The audit command returns exit code `2` when a HIGH or CRITICAL finding exists. The systemd unit declares `SuccessExitStatus=2`, so a completed security audit still triggers email delivery. Genuine execution or configuration failures do not trigger delivery of an older report.
 
+## Public backup and dump detection
+
+The `check_public_backups` audit identifies potentially exposed sensitive artifacts beneath each site's `public_html`:
+
+- database dumps such as `.sql`, `.sql.gz`, `.sqlite3` and `.dump` are `CRITICAL`;
+- copies of `wp-config.php` and `.env` are `CRITICAL`;
+- JPA, WPRESS and TAR-family site archives are `HIGH`;
+- ZIP, GZ, 7Z and RAR files are `HIGH` only when their path or filename clearly indicates backup, dump, migration, snapshot or archive storage.
+
+Ordinary downloadable ZIP files are not flagged solely by extension. The scan records metadata only and does not open or hash large backup archives.
+
+Known intentional fixtures can be excluded narrowly:
+
+```toml
+[policy]
+allow_public_backup_paths = [
+  "path/to/exact-fixture.sql",
+  "path/to/test-backups/",
+]
+```
+
+Exact paths and directory prefixes are relative to the site's `public_html` directory.
+
 ## Email reports
 
 Email delivery is configured in `/etc/wp-guardian/guardian.toml`:
@@ -151,8 +175,7 @@ systemctl list-timers wp-guardian.timer --all
 ## Roadmap
 
 1. validate read-only results against the existing manual audit;
-2. add checks for exposed database and backup archives inside public web roots;
-3. add database backup and single-domain guarded updates under `admin`;
-4. add reversible quarantine with manifests under `admin` ownership;
-5. add structured log ingestion;
-6. only after production validation, consider scheduled safe updates.
+2. add database backup and single-domain guarded updates under `admin`;
+3. add reversible quarantine with manifests under `admin` ownership;
+4. add structured log ingestion;
+5. only after production validation, consider scheduled safe updates.
