@@ -10,6 +10,7 @@ User=admin
 Group=admin
 WorkingDirectory=/home/admin
 ExecStart=/usr/local/bin/wp-guardian --config /etc/wp-guardian/guardian.toml audit
+SuccessExitStatus=2
 UMask=0027
 Nice=10
 IOSchedulingClass=best-effort
