@@ -12,6 +12,7 @@ from .config import load_config
 from .discovery import discover_sites
 from .mailer import send_latest_report
 from .reporting import build_report, render_text, write_report
+from .retention import business_day_cutoff, prune_report_files
 from .storage import Storage
 
 DEFAULT_CONFIG = Path("/etc/wp-guardian/guardian.toml")
@@ -78,8 +79,19 @@ def main(argv: list[str] | None = None) -> int:
         report = build_report(audits)
         json_path, text_path = write_report(config.report_dir, report)
         storage.finish_run(run_id, datetime.now(timezone.utc).isoformat(), str(json_path))
+
+        cutoff = business_day_cutoff(config.retention_business_days)
+        removed_reports = prune_report_files(config.report_dir, cutoff)
+        removed_runs = storage.prune_runs_before(cutoff.isoformat())
+
         print(json.dumps(report, ensure_ascii=False, indent=2) if args.json else render_text(report))
         print(f"Saved: {text_path}", file=sys.stderr)
+        print(
+            "Retention cleanup: "
+            f"business_days={config.retention_business_days}, "
+            f"reports_removed={removed_reports}, runs_removed={removed_runs}",
+            file=sys.stderr,
+        )
         return 2 if report["summary"]["worst_severity"] in {"HIGH", "CRITICAL"} else 0
 
     return 1
