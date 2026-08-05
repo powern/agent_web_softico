@@ -36,6 +36,7 @@ check_updates = true
 verify_core_checksums = true
 verify_plugin_checksums = true
 scan_uploads_php = true
+check_public_backups = true
 check_admin_users = true
 check_world_writable = true
 
@@ -50,6 +51,7 @@ allow_php_upload_paths = [
   "wpallexport/",
   "wpallimport/",
 ]
+allow_public_backup_paths = []
 
 [mail]
 enabled = true
