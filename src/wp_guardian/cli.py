@@ -18,6 +18,7 @@ from .retention import business_day_cutoff, prune_report_files
 from .runner import CommandRunner
 from .storage import Storage
 from .update_plan import build_update_plan
+from .update_prepare import UpdatePreparationError, prepare_component_update
 from .wordpress import WordPress
 
 DEFAULT_CONFIG = Path("/etc/wp-guardian/guardian.toml")
@@ -49,6 +50,23 @@ def parser() -> argparse.ArgumentParser:
     )
     plan.add_argument("--domain", required=True, help="Exact configured domain")
     plan.add_argument("--json", action="store_true", help="Print the plan as JSON")
+    prepare = sub.add_parser(
+        "prepare-update",
+        help="Create a fresh database backup and component snapshot without updating",
+    )
+    prepare.add_argument("--domain", required=True, help="Exact configured domain")
+    prepare.add_argument(
+        "--kind",
+        required=True,
+        choices=("plugin", "theme"),
+        help="Component kind",
+    )
+    prepare.add_argument("--name", required=True, help="Exact plugin or theme slug")
+    prepare.add_argument(
+        "--target-version",
+        required=True,
+        help="Exact target version currently advertised by WP-CLI",
+    )
     report = sub.add_parser("report", help="Print the latest report")
     report.add_argument("--json", action="store_true", help="Print latest JSON report")
     sub.add_parser("send-report", help="Send the latest text report by local mail transport")
@@ -68,7 +86,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"{site.domain}\t{site.path}")
         return 0
 
-    if args.command in {"backup", "verify-backup", "update-plan"}:
+    if args.command in {"backup", "verify-backup", "update-plan", "prepare-update"}:
         matching = [site for site in discover_sites(config) if site.domain == args.domain]
         if len(matching) != 1:
             print(f"Domain not found or excluded: {args.domain}", file=sys.stderr)
@@ -116,6 +134,41 @@ def main(argv: list[str] | None = None) -> int:
             print(f"CREATE TABLE statements: {result.create_table_statements}")
             print(f"Matching WordPress tables: {result.matching_tables}")
             print(f"INSERT statements: {result.insert_statements}")
+            return 0
+
+        if args.command == "prepare-update":
+            try:
+                result = prepare_component_update(
+                    config,
+                    matching[0],
+                    wordpress,
+                    runner,
+                    kind=args.kind,
+                    name=args.name,
+                    target_version=args.target_version,
+                )
+            except (UpdatePreparationError, BackupError, OSError) as exc:
+                print(f"Update preparation error: {exc}", file=sys.stderr)
+                return 2
+            print(f"Update preparation completed for {result.domain}")
+            print(f"Preparation ID: {result.preparation_id}")
+            print(f"Directory: {result.directory}")
+            print(f"Manifest: {result.manifest_path}")
+            print(
+                f"Component: {result.component_kind} {result.component_name} "
+                f"{result.current_version} -> {result.target_version}"
+            )
+            print(f"Component snapshot: {result.component_archive}")
+            print(f"Component snapshot size: {result.component_archive_size}")
+            print(f"Component snapshot SHA256: {result.component_archive_sha256}")
+            print(f"Database: {result.database_path}")
+            print(f"Database SHA256: {result.database_sha256}")
+            print(
+                "Backup retention: "
+                f"keep_last={config.backup_keep_last}, "
+                f"removed={result.backups_removed}"
+            )
+            print("No WordPress update was executed")
             return 0
 
         plan_result = build_update_plan(config, matching[0], wordpress, runner)
