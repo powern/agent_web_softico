@@ -201,14 +201,13 @@ fi
 
 # Existing timer enablement is preserved. The installer does not enable a timer
 # that the administrator has not already enabled.
-echo "Installed with read-only audits, private backups and guarded nightly maintenance."
+echo "Installed with scheduled read-only audits, private backups and manual guarded maintenance."
 echo "Runtime account: $RUNTIME_USER:$RUNTIME_GROUP"
 echo "Root is used only for installation and isolated local mail submission."
-echo "Audits, backups and maintenance updates run as $RUNTIME_USER."
-echo "Nightly maintenance automatically updates active and inactive plugins with exact target versions."
-echo "All themes are reported but skipped automatically."
-echo "Each automatic update receives a fresh verified database backup, component snapshot and rollback protection."
-echo "After maintenance, a full fleet audit is written to latest.txt/latest.json and emailed by wp-guardian-mail.service."
+echo "The scheduled timer runs a read-only fleet audit as $RUNTIME_USER."
+echo "Scheduled execution does not update plugins, themes or WordPress core."
+echo "The scheduled audit writes latest.txt/latest.json and triggers wp-guardian-mail.service."
+echo "Guarded plugin maintenance remains available only through an explicit manual command."
 echo "Audit and maintenance reports plus SQLite run history are retained for 3 business days by default."
 echo "Database backups retain the latest 3 completed copies per domain by default."
 echo "Run as $RUNTIME_USER:"
