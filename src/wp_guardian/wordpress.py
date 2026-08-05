@@ -30,6 +30,16 @@ class WordPress:
         result = self.wp(site_path, "core", "version")
         return result.stdout if result.ok else None
 
+    def table_prefix(self, site_path: Path) -> str | None:
+        result = self.wp(
+            site_path,
+            "config",
+            "get",
+            "table_prefix",
+            "--type=variable",
+        )
+        return result.stdout.strip() if result.ok and result.stdout.strip() else None
+
     def verify_core(self, site_path: Path) -> CommandResult:
         return self.wp(site_path, "core", "verify-checksums")
 
