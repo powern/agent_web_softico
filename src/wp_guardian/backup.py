@@ -28,6 +28,7 @@ class BackupResult:
     manifest_path: Path
     size: int
     sha256: str
+    backups_removed: int = 0
 
 
 def _is_within(path: Path, parent: Path) -> bool:
@@ -59,6 +60,82 @@ def prepare_backup_root(config: GuardianConfig) -> Path:
     root.mkdir(parents=True, exist_ok=True, mode=0o700)
     os.chmod(root, 0o700)
     return root
+
+
+def _completed_backup_created_at(path: Path, domain: str) -> datetime | None:
+    """Return the creation time only for a complete Guardian backup directory."""
+    if path.name.startswith(".") or path.is_symlink() or not path.is_dir():
+        return None
+
+    manifest_path = path / "manifest.json"
+    database_path = path / "database.sql.gz"
+    if (
+        manifest_path.is_symlink()
+        or database_path.is_symlink()
+        or not manifest_path.is_file()
+        or not database_path.is_file()
+    ):
+        return None
+
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        if manifest.get("schema_version") != 1 or manifest.get("domain") != domain:
+            return None
+        database = manifest.get("database")
+        if not isinstance(database, dict) or database.get("filename") != database_path.name:
+            return None
+        created_at = datetime.fromisoformat(str(manifest["created_at"]).replace("Z", "+00:00"))
+    except (OSError, ValueError, TypeError, KeyError, json.JSONDecodeError):
+        return None
+
+    if created_at.tzinfo is None:
+        return None
+    return created_at.astimezone(timezone.utc)
+
+
+def prune_completed_backups(
+    domain_root: Path,
+    domain: str,
+    keep_last: int,
+    *,
+    protect: Path | None = None,
+) -> int:
+    """Keep only the newest completed Guardian backups for one domain.
+
+    Temporary directories, symlinks, incomplete directories and unrelated files
+    are ignored. The optional protected directory is never removed even if its
+    manifest timestamp is unusual.
+    """
+    if keep_last < 1:
+        raise BackupError("backup.keep_last must be at least 1")
+
+    candidates: list[tuple[datetime, str, Path]] = []
+    for path in domain_root.iterdir():
+        created_at = _completed_backup_created_at(path, domain)
+        if created_at is not None:
+            candidates.append((created_at, path.name, path))
+
+    candidates.sort(reverse=True)
+    keep: set[Path] = {item[2] for item in candidates[:keep_last]}
+    if protect is not None:
+        keep.add(protect)
+
+    removed = 0
+    failures: list[str] = []
+    for _, _, path in candidates:
+        if path in keep:
+            continue
+        try:
+            if path.is_symlink():
+                continue
+            shutil.rmtree(path)
+            removed += 1
+        except OSError as exc:
+            failures.append(f"{path}: {exc}")
+
+    if failures:
+        raise BackupError("Backup retention cleanup failed: " + "; ".join(failures))
+    return removed
 
 
 def create_database_backup(
@@ -132,6 +209,12 @@ def create_database_backup(
         os.chmod(manifest_path, 0o600)
 
         os.replace(staging, final_dir)
+        removed = prune_completed_backups(
+            domain_root,
+            site.domain,
+            config.backup_keep_last,
+            protect=final_dir,
+        )
         return BackupResult(
             domain=site.domain,
             directory=final_dir,
@@ -139,6 +222,7 @@ def create_database_backup(
             manifest_path=final_dir / manifest_path.name,
             size=size,
             sha256=digest,
+            backups_removed=removed,
         )
     except Exception:
         shutil.rmtree(staging, ignore_errors=True)
