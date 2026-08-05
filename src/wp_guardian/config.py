@@ -15,7 +15,7 @@ class GuardianConfig:
     curl: str = "curl"
     command_timeout: int = 60
     http_timeout: int = 20
-    max_scan_files: int = 50000
+    max_scan_files: int = 200000
     include: set[str] = field(default_factory=set)
     exclude: set[str] = field(default_factory=set)
     checks: dict[str, bool] = field(default_factory=dict)
@@ -50,7 +50,7 @@ def load_config(path: Path) -> GuardianConfig:
         curl=str(general.get("curl", "curl")),
         command_timeout=int(general.get("command_timeout", 60)),
         http_timeout=int(general.get("http_timeout", 20)),
-        max_scan_files=int(general.get("max_scan_files", 50000)),
+        max_scan_files=int(general.get("max_scan_files", 200000)),
         include=set(sites.get("include", [])),
         exclude=set(sites.get("exclude", [])),
         checks={key: bool(value) for key, value in audit.items()},
