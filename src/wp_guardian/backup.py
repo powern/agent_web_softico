@@ -144,6 +144,7 @@ def create_database_backup(
     wordpress: WordPress,
     *,
     now: datetime | None = None,
+    apply_retention: bool = True,
 ) -> BackupResult:
     root = prepare_backup_root(config)
     domain_root = root / site.domain
@@ -209,12 +210,14 @@ def create_database_backup(
         os.chmod(manifest_path, 0o600)
 
         os.replace(staging, final_dir)
-        removed = prune_completed_backups(
-            domain_root,
-            site.domain,
-            config.backup_keep_last,
-            protect=final_dir,
-        )
+        removed = 0
+        if apply_retention:
+            removed = prune_completed_backups(
+                domain_root,
+                site.domain,
+                config.backup_keep_last,
+                protect=final_dir,
+            )
         return BackupResult(
             domain=site.domain,
             directory=final_dir,
