@@ -6,6 +6,7 @@ PYTHON_BIN="${PYTHON_BIN:-python3}"
 INSTALL_ROOT="/opt/wp-guardian"
 VENV_DIR="$INSTALL_ROOT/venv"
 VENV_OLD="$INSTALL_ROOT/venv.old"
+CONFIG_FILE="/etc/wp-guardian/guardian.toml"
 
 if [[ ${EUID} -ne 0 ]]; then
   echo "Run the installer with sudo/root privileges" >&2
@@ -93,25 +94,48 @@ install -d -o "$RUNTIME_USER" -g "$RUNTIME_GROUP" -m 0750 \
   /var/lib/wp-guardian \
   /var/lib/wp-guardian/reports
 
-if [[ ! -f /etc/wp-guardian/guardian.toml ]]; then
+if [[ ! -f "$CONFIG_FILE" ]]; then
   install -o root -g "$RUNTIME_GROUP" -m 0640 \
     config/guardian.toml.example \
-    /etc/wp-guardian/guardian.toml
+    "$CONFIG_FILE"
+elif ! grep -Eq '^[[:space:]]*\[mail\][[:space:]]*$' "$CONFIG_FILE"; then
+  # Preserve all existing settings while adding the mail section introduced by
+  # newer versions. This migration is idempotent and never replaces the file.
+  cat >> "$CONFIG_FILE" <<'EOF'
+
+[mail]
+enabled = true
+recipients = ["skr@softico.ua"]
+subject_prefix = "[WP Guardian]"
+sendmail = "/usr/sbin/sendmail"
+EOF
 fi
+
+chown root:"$RUNTIME_GROUP" "$CONFIG_FILE"
+chmod 0640 "$CONFIG_FILE"
 
 install -o root -g root -m 0644 \
   systemd/wp-guardian.service \
   /etc/systemd/system/wp-guardian.service
+install -o root -g root -m 0644 \
+  systemd/wp-guardian-mail.service \
+  /etc/systemd/system/wp-guardian-mail.service
 install -o root -g root -m 0644 \
   systemd/wp-guardian.timer \
   /etc/systemd/system/wp-guardian.timer
 
 systemctl daemon-reload
 
-# The service is intentionally not enabled or started automatically.
+if [[ ! -x /usr/sbin/sendmail ]]; then
+  echo "Warning: /usr/sbin/sendmail is unavailable; report email will fail until a sendmail-compatible local transport is installed." >&2
+fi
+
+# The service and timer are intentionally not enabled or started automatically.
 echo "Installed in read-only mode."
 echo "Runtime account: $RUNTIME_USER:$RUNTIME_GROUP"
 echo "Root is used only for installation; audits run as $RUNTIME_USER."
+echo "Successful systemd audits trigger wp-guardian-mail.service."
 echo "Run as $RUNTIME_USER:"
-echo "  sudo -u $RUNTIME_USER wp-guardian --config /etc/wp-guardian/guardian.toml sites"
-echo "  sudo -u $RUNTIME_USER wp-guardian --config /etc/wp-guardian/guardian.toml audit --domain softico.ua"
+echo "  sudo -u $RUNTIME_USER wp-guardian --config $CONFIG_FILE sites"
+echo "  sudo -u $RUNTIME_USER wp-guardian --config $CONFIG_FILE audit --domain softico.ua"
+echo "  sudo -u $RUNTIME_USER wp-guardian --config $CONFIG_FILE send-report"
