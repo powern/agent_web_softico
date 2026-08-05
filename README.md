@@ -16,6 +16,7 @@
 - detects world-writable files;
 - stores audit history in SQLite;
 - writes human-readable and JSON reports;
+- removes expired report files and audit-run history after a configurable number of business days;
 - sends the latest text report through the server's local sendmail-compatible mail transport;
 - includes hardened systemd services that run the audit and mail submission as the existing `admin` account.
 
@@ -58,6 +59,7 @@ The installer:
 
 - preserves an existing `/etc/wp-guardian/guardian.toml`;
 - adds the `[mail]` section once when upgrading an older installation;
+- adds `retention_business_days = 3` once when upgrading an older installation;
 - installs the audit service, mail service and timer;
 - reloads systemd;
 - does not enable or start the timer automatically.
@@ -117,13 +119,25 @@ wp-guardian --config /etc/wp-guardian/guardian.toml send-report
 
 The command reads `/var/lib/wp-guardian/reports/latest.txt` and submits it to the configured local mail transport. No interactive password or sudo prompt is involved in scheduled runs.
 
-## Reports and state
+## Reports, state and retention
 
 ```text
 /var/lib/wp-guardian/guardian.sqlite3
 /var/lib/wp-guardian/reports/latest.txt
 /var/lib/wp-guardian/reports/latest.json
+/var/lib/wp-guardian/reports/audit-YYYYMMDD-HHMMSS.txt
+/var/lib/wp-guardian/reports/audit-YYYYMMDD-HHMMSS.json
 ```
+
+Retention is configured in the `[general]` section:
+
+```toml
+retention_business_days = 3
+```
+
+After each completed audit, the agent deletes timestamped `audit-*.txt` and `audit-*.json` files older than the current and two preceding business days. Matching historical `runs` and `site_audits` rows are deleted from SQLite. `latest.txt`, `latest.json`, unrelated files and the administrator baseline are retained.
+
+This setting does not change the global systemd journal policy and does not delete logs belonging to other services.
 
 ## Enabling the schedule
 
