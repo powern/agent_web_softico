@@ -30,6 +30,13 @@ def build_report(audits: list[SiteAudit]) -> dict:
     }
 
 
+def update_label(item: dict) -> str:
+    name = str(item.get("name") or item.get("slug") or "unknown")
+    current = str(item.get("version") or "?")
+    target = str(item.get("update_version") or item.get("new_version") or "?")
+    return f"{name} {current} -> {target}"
+
+
 def render_text(report: dict) -> str:
     summary = report["summary"]
     lines = [
@@ -43,18 +50,41 @@ def render_text(report: dict) -> str:
     for site in report["sites"]:
         lines.append(f"[{site['domain']}]")
         lines.append(f"Path: {site['path']}")
-        http = site["facts"].get("http", {})
+        facts = site["facts"]
+        http = facts.get("http", {})
         if http:
             lines.append(
                 f"HTTP: {http.get('code', 'n/a')} {http.get('url', '')} ({http.get('time', 'n/a')}s)"
             )
-        core = site["facts"].get("core_version")
+        core = facts.get("core_version")
         if core:
             lines.append(f"Core: {core}")
-        updates = site["facts"].get("updates", {})
+        updates = facts.get("updates", {})
         if updates:
+            plugins = updates.get("plugins", [])
+            themes = updates.get("themes", [])
+            lines.append(f"Updates: plugins={len(plugins)}, themes={len(themes)}")
+            for item in plugins:
+                lines.append(f"  plugin: {update_label(item)}")
+            for item in themes:
+                lines.append(f"  theme: {update_label(item)}")
+        uploads = facts.get("uploads_php", {})
+        if uploads:
             lines.append(
-                f"Updates: plugins={len(updates.get('plugins', []))}, themes={len(updates.get('themes', []))}"
+                "Uploads scan: "
+                f"scanned={uploads.get('scanned_files', 0)}, "
+                f"php={uploads.get('php_files', 0)}, "
+                f"suspicious={uploads.get('suspicious', 0)}, "
+                f"complete={uploads.get('complete', False)}"
+            )
+        plugin_checksums = facts.get("plugin_checksums", {})
+        if plugin_checksums:
+            lines.append(
+                "Plugin checksums: "
+                f"checked={plugin_checksums.get('checked', 0)}, "
+                f"skipped_private={plugin_checksums.get('skipped_private', 0)}, "
+                f"failed={plugin_checksums.get('failed', 0)}, "
+                f"timeouts={plugin_checksums.get('timeouts', 0)}"
             )
         if site["findings"]:
             for finding in site["findings"]:
