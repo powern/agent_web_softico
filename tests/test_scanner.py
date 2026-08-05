@@ -24,10 +24,42 @@ class ScannerTests(unittest.TestCase):
             )
             audit = SiteAudit("example.com", str(site))
             scan_uploads(site, config, audit)
-            self.assertEqual(audit.facts["uploads_php"]["files"], 2)
-            self.assertEqual(audit.facts["uploads_php"]["suspicious"], 1)
+            facts = audit.facts["uploads_php"]
+            self.assertEqual(facts["scanned_files"], 2)
+            self.assertEqual(facts["php_files"], 2)
+            self.assertEqual(facts["suspicious"], 1)
+            self.assertTrue(facts["complete"])
             self.assertEqual(audit.findings[0].severity, "CRITICAL")
             self.assertIn("base64_decode", audit.findings[0].details["patterns"])
+
+    def test_directories_do_not_consume_scan_limit(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            site = Path(directory)
+            uploads = site / "wp-content" / "uploads"
+            current = uploads
+            for index in range(25):
+                current = current / f"level-{index}"
+                current.mkdir(parents=True)
+            guard = current / "index.php"
+            guard.write_text("<?php exit; ?>", encoding="utf-8")
+
+            config = GuardianConfig(
+                allow_php_upload_paths=(),
+                max_scan_files=1,
+            )
+            audit = SiteAudit("example.com", str(site))
+            scan_uploads(site, config, audit)
+
+            facts = audit.facts["uploads_php"]
+            self.assertEqual(facts["scanned_files"], 1)
+            self.assertEqual(facts["php_files"], 1)
+            self.assertTrue(facts["complete"])
+            self.assertFalse(
+                any(
+                    finding.message == "Uploads scan stopped at configured file limit"
+                    for finding in audit.findings
+                )
+            )
 
 
 if __name__ == "__main__":
