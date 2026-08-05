@@ -19,13 +19,15 @@
 - writes human-readable and JSON reports;
 - removes expired report files and audit-run history after a configurable number of business days;
 - sends the latest text report through the server's local sendmail-compatible mail transport;
-- includes hardened systemd services that run the audit and mail submission as the existing `admin` account.
+- includes separate hardened systemd services for the unprivileged audit and privileged local-mail submission.
 
 ## Safety model
 
 Version `0.1.0` is audit-only. It has no code paths for automatic updates, file deletion, quarantine, user deletion, configuration changes, IP blocking, or rollback.
 
-The agent never runs WP-CLI as root and does not use `--allow-root`. The audit and report-mail commands run as `admin:admin`, which already owns and manages the hosted WordPress files. Root privileges are needed only for installing files under `/opt`, `/etc`, `/usr/local/bin`, and `/etc/systemd/system`.
+The agent never runs WP-CLI as root and does not use `--allow-root`. Discovery, audits and report generation run as `admin:admin`, which already owns and manages the hosted WordPress files.
+
+Debian Exim requires privileged access to its local spool when submitting through `/usr/sbin/sendmail`. The dedicated `wp-guardian-mail.service` therefore runs only the `send-report` operation as root. Its systemd sandbox hides `/home`, makes the system read-only, and permits writes only to the Exim spool, log and runtime paths. It does not run WP-CLI or inspect hosted sites.
 
 Persistent state and reports are stored in `/var/lib/wp-guardian`, owned by `admin:admin`. The program code and configuration remain root-owned and read-only to the runtime account.
 
@@ -36,7 +38,7 @@ Persistent state and reports are stored in `/var/lib/wp-guardian`, owned by `adm
 - curl
 - a local sendmail-compatible mail transport such as Exim
 - existing `admin` user with access to `/home/admin/web/*/public_html`
-- sudo/root access only for installation and systemd administration
+- sudo/root access for installation, systemd administration and isolated local-mail submission
 
 ## Development test
 
@@ -77,7 +79,7 @@ sudo -u admin wp-guardian --config /etc/wp-guardian/guardian.toml audit --domain
 sudo -u admin wp-guardian --config /etc/wp-guardian/guardian.toml report
 ```
 
-To inspect the exact systemd identity before starting anything:
+To inspect the exact systemd identities before starting anything:
 
 ```bash
 systemctl cat wp-guardian.service
@@ -85,11 +87,11 @@ systemctl cat wp-guardian-mail.service
 grep -E '^(User|Group)=' /etc/systemd/system/wp-guardian*.service
 ```
 
-Expected values:
+Expected identities:
 
 ```text
-User=admin
-Group=admin
+wp-guardian.service:      User=admin, Group=admin
+wp-guardian-mail.service: User=root,  Group=root
 ```
 
 The audit command returns exit code `2` when a HIGH or CRITICAL finding exists. The systemd unit declares `SuccessExitStatus=2`, so a completed security audit still triggers email delivery. Genuine execution or configuration failures do not trigger delivery of an older report.
@@ -135,7 +137,7 @@ The audit unit contains:
 OnSuccess=wp-guardian-mail.service
 ```
 
-After an audit completes with exit code `0` or `2`, systemd runs:
+After an audit completes with exit code `0` or `2`, systemd starts the isolated mail unit, which runs:
 
 ```bash
 wp-guardian --config /etc/wp-guardian/guardian.toml send-report
