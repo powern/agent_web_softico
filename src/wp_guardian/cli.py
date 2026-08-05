@@ -17,6 +17,7 @@ from .reporting import build_report, render_text, write_report
 from .retention import business_day_cutoff, prune_report_files
 from .runner import CommandRunner
 from .storage import Storage
+from .update_apply import UpdateApplyError, apply_prepared_plugin_update
 from .update_plan import build_update_plan
 from .update_prepare import UpdatePreparationError, prepare_component_update
 from .wordpress import WordPress
@@ -67,6 +68,28 @@ def parser() -> argparse.ArgumentParser:
         required=True,
         help="Exact target version currently advertised by WP-CLI",
     )
+    apply_update = sub.add_parser(
+        "apply-update",
+        help="Apply one prepared inactive plugin update with automatic file rollback",
+    )
+    apply_update.add_argument("--domain", required=True, help="Exact configured domain")
+    apply_update.add_argument(
+        "--preparation-id",
+        required=True,
+        help="Exact SHA-256 preparation ID printed by prepare-update",
+    )
+    apply_update.add_argument(
+        "--kind",
+        required=True,
+        choices=("plugin",),
+        help="Initial apply scope supports only plugin",
+    )
+    apply_update.add_argument("--name", required=True, help="Exact plugin slug")
+    apply_update.add_argument(
+        "--target-version",
+        required=True,
+        help="Exact target version recorded by prepare-update",
+    )
     report = sub.add_parser("report", help="Print the latest report")
     report.add_argument("--json", action="store_true", help="Print latest JSON report")
     sub.add_parser("send-report", help="Send the latest text report by local mail transport")
@@ -86,7 +109,14 @@ def main(argv: list[str] | None = None) -> int:
             print(f"{site.domain}\t{site.path}")
         return 0
 
-    if args.command in {"backup", "verify-backup", "update-plan", "prepare-update"}:
+    managed_commands = {
+        "backup",
+        "verify-backup",
+        "update-plan",
+        "prepare-update",
+        "apply-update",
+    }
+    if args.command in managed_commands:
         matching = [site for site in discover_sites(config) if site.domain == args.domain]
         if len(matching) != 1:
             print(f"Domain not found or excluded: {args.domain}", file=sys.stderr)
@@ -169,6 +199,39 @@ def main(argv: list[str] | None = None) -> int:
                 f"removed={result.backups_removed}"
             )
             print("No WordPress update was executed")
+            return 0
+
+        if args.command == "apply-update":
+            try:
+                result = apply_prepared_plugin_update(
+                    config,
+                    matching[0],
+                    wordpress,
+                    runner,
+                    preparation_id=args.preparation_id,
+                    kind=args.kind,
+                    name=args.name,
+                    target_version=args.target_version,
+                )
+            except (UpdateApplyError, BackupError, OSError) as exc:
+                print(f"Update apply error: {exc}", file=sys.stderr)
+                return 2
+            print(f"Prepared update applied for {result.domain}")
+            print(f"Preparation ID: {result.preparation_id}")
+            print(f"Directory: {result.directory}")
+            print(f"Record: {result.record_path}")
+            print(
+                f"Plugin: {result.component_name} "
+                f"{result.previous_version} -> {result.target_version} "
+                f"(status={result.status})"
+            )
+            print(f"HTTPS status: {result.https_status}")
+            print(f"Core version: {result.core_version}")
+            print(f"Plugin checksum verified: {result.plugin_checksum_verified}")
+            if result.update_output:
+                print("WP-CLI output:")
+                print(result.update_output)
+            print("Automatic rollback was not required")
             return 0
 
         plan_result = build_update_plan(config, matching[0], wordpress, runner)
