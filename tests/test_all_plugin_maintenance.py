@@ -5,8 +5,9 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
+from wp_guardian import maintenance
 from wp_guardian.config import GuardianConfig
-from wp_guardian.maintenance_all_plugins import _detect_site_updates
+from wp_guardian.maintenance_all_plugins import _detect_site_updates, main
 from wp_guardian.models import Site
 from wp_guardian.runner import CommandResult
 from wp_guardian.update_apply import UpdateApplyError
@@ -81,6 +82,51 @@ class AllPluginMaintenanceTests(unittest.TestCase):
         self.assertEqual(
             {(item.kind, item.name) for item in skipped},
             {("plugin", "mu-plugin"), ("theme", "premium-theme")},
+        )
+
+    def test_domain_argument_scopes_discovery_and_final_audit(self):
+        first = Site("first.example", Path("/srv/first"))
+        second = Site("second.example", Path("/srv/second"))
+        config_marker = SimpleNamespace()
+
+        with (
+            patch.object(
+                maintenance,
+                "discover_sites",
+                return_value=[first, second],
+            ) as original_discovery,
+            patch.object(
+                maintenance,
+                "audit_all",
+                return_value=["selected-audit"],
+            ) as original_audit,
+            patch.object(maintenance, "main") as core_main,
+        ):
+            def run_core(argv):
+                self.assertEqual(argv, ["--config", "/tmp/guardian.toml"])
+                selected = maintenance.discover_sites(config_marker)
+                self.assertEqual([site.domain for site in selected], ["second.example"])
+                self.assertEqual(
+                    maintenance.audit_all(config_marker),
+                    ["selected-audit"],
+                )
+                return 0
+
+            core_main.side_effect = run_core
+            result = main(
+                [
+                    "--config",
+                    "/tmp/guardian.toml",
+                    "--domain",
+                    "SECOND.EXAMPLE",
+                ]
+            )
+
+        self.assertEqual(result, 0)
+        original_discovery.assert_called_once_with(config_marker)
+        original_audit.assert_called_once_with(
+            config_marker,
+            domain="second.example",
         )
 
     def test_active_plugin_update_preserves_active_status(self):
