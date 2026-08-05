@@ -33,6 +33,23 @@ class WordPress:
     def verify_core(self, site_path: Path) -> CommandResult:
         return self.wp(site_path, "core", "verify-checksums")
 
+    def export_database(
+        self,
+        site_path: Path,
+        target: Path,
+        *,
+        timeout: int | None = None,
+    ) -> CommandResult:
+        return self.wp(
+            site_path,
+            "db",
+            "export",
+            str(target),
+            "--add-drop-table",
+            "--single-transaction",
+            timeout=timeout,
+        )
+
     def list_updates(self, site_path: Path, kind: str) -> list[dict[str, Any]]:
         result = self.wp(site_path, kind, "list", "--update=available", "--format=json")
         if not result.ok:
