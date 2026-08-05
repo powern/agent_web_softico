@@ -58,10 +58,6 @@ SENSITIVE_CONFIG_COPY = re.compile(
     r"\.env(?:\.(?:bak|backup|old|orig|save|copy|local|production|prod))?)$",
     re.I,
 )
-COMPONENT_PREFIXES = (
-    "wp-content/plugins/",
-    "wp-content/themes/",
-)
 COMPONENT_DATABASE_SIZE_THRESHOLD = 1024 * 1024
 
 
@@ -73,9 +69,9 @@ def component_tail(relative: str) -> list[str] | None:
     """Return path parts below a plugin/theme slug, or None outside components."""
     normalized = normalize_relative(relative)
     parts = normalized.split("/")
-    if len(parts) >= 4 and parts[:2] == ["wp-content", "plugins"]:
+    if len(parts) >= 3 and parts[:2] == ["wp-content", "plugins"]:
         return parts[3:]
-    if len(parts) >= 4 and parts[:2] == ["wp-content", "themes"]:
+    if len(parts) >= 3 and parts[:2] == ["wp-content", "themes"]:
         return parts[3:]
     return None
 
