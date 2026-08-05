@@ -14,7 +14,7 @@ dependencies = []
 
 [project.scripts]
 wp-guardian = "wp_guardian.cli:main"
-wp-guardian-maintenance = "wp_guardian.maintenance:main"
+wp-guardian-maintenance = "wp_guardian.maintenance_all_plugins:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
