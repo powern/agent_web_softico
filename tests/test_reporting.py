@@ -60,6 +60,23 @@ class ReportingTests(unittest.TestCase):
             "- CRITICAL uploads_php: /srv/site/wp-content/uploads/shell.php patterns=eval,base64_decode",
         )
 
+    def test_public_backup_finding_includes_kind_size_and_path(self) -> None:
+        self.assertEqual(
+            finding_label(
+                {
+                    "severity": "HIGH",
+                    "check": "public_backups",
+                    "message": "Potential site backup archive is inside the public web root",
+                    "details": {
+                        "kind": "site_backup",
+                        "size": 143301133,
+                        "path": "/srv/site/wp-content/backups/site.jpa",
+                    },
+                }
+            ),
+            "- HIGH public_backups: kind=site_backup size=143301133 /srv/site/wp-content/backups/site.jpa",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
