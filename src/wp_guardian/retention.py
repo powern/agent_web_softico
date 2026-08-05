@@ -17,7 +17,10 @@ def business_day_cutoff(
     if business_days < 1:
         raise ValueError("retention_business_days must be at least 1")
 
-    local_now = now.astimezone() if now is not None else datetime.now().astimezone()
+    local_now = now if now is not None else datetime.now().astimezone()
+    if local_now.tzinfo is None:
+        raise ValueError("now must be timezone-aware")
+
     anchor = local_now.date()
     while anchor.weekday() >= 5:
         anchor -= timedelta(days=1)
