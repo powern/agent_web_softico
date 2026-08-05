@@ -121,7 +121,33 @@ if ! grep -Eq '^[[:space:]]*\[backup\][[:space:]]*$' "$CONFIG_FILE"; then
 [backup]
 directory = "/home/admin/private-backups/wp-guardian"
 timeout = 900
+keep_last = 3
 EOF
+fi
+
+if ! grep -Eq '^[[:space:]]*keep_last[[:space:]]*=' "$CONFIG_FILE"; then
+  "$PYTHON_BIN" - "$CONFIG_FILE" <<'PY'
+from pathlib import Path
+import sys
+
+path = Path(sys.argv[1])
+lines = path.read_text(encoding="utf-8").splitlines()
+try:
+    section_index = next(
+        index for index, line in enumerate(lines)
+        if line.strip() == "[backup]"
+    )
+except StopIteration as exc:
+    raise SystemExit("guardian.toml is missing the required [backup] section") from exc
+
+insert_at = len(lines)
+for index in range(section_index + 1, len(lines)):
+    if lines[index].strip().startswith("["):
+        insert_at = index
+        break
+lines.insert(insert_at, "keep_last = 3")
+path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
+PY
 fi
 
 if ! grep -Eq '^[[:space:]]*retention_business_days[[:space:]]*=' "$CONFIG_FILE"; then
@@ -181,6 +207,7 @@ echo "Root is used only for installation and isolated local mail submission."
 echo "Audits and manual database backups run as $RUNTIME_USER."
 echo "Successful systemd audits trigger wp-guardian-mail.service."
 echo "Audit reports and SQLite run history are retained for 3 business days by default."
+echo "Database backups retain the latest 3 completed copies per domain by default."
 echo "Run as $RUNTIME_USER:"
 echo "  sudo -u $RUNTIME_USER wp-guardian --config $CONFIG_FILE sites"
 echo "  sudo -u $RUNTIME_USER wp-guardian --config $CONFIG_FILE audit --domain softico.ua"
