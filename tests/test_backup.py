@@ -40,6 +40,7 @@ class BackupTests(unittest.TestCase):
                 sites_root=base / "web",
                 backup_dir=backup_dir,
                 backup_timeout=600,
+                backup_keep_last=3,
             )
             wordpress = FakeWordPress()
 
@@ -51,6 +52,7 @@ class BackupTests(unittest.TestCase):
             )
 
             self.assertEqual(result.directory.name, "20260805T081500Z")
+            self.assertEqual(result.backups_removed, 0)
             self.assertEqual(stat.S_IMODE(result.directory.stat().st_mode), 0o700)
             self.assertEqual(stat.S_IMODE(result.database_path.stat().st_mode), 0o600)
             self.assertEqual(stat.S_IMODE(result.manifest_path.stat().st_mode), 0o600)
@@ -63,6 +65,82 @@ class BackupTests(unittest.TestCase):
             self.assertEqual(manifest["database"]["size"], result.size)
             self.assertEqual(manifest["database"]["sha256"], result.sha256)
             self.assertFalse(any(path.name.startswith(".") for path in result.directory.parent.iterdir()))
+
+    def test_keeps_only_three_completed_backups_per_domain(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            site_path = base / "web" / "example.com" / "public_html"
+            site_path.mkdir(parents=True)
+            config = GuardianConfig(
+                sites_root=base / "web",
+                backup_dir=base / "private-backups",
+                backup_keep_last=3,
+            )
+            site = Site("example.com", site_path)
+
+            results = [
+                create_database_backup(
+                    config,
+                    site,
+                    FakeWordPress(),  # type: ignore[arg-type]
+                    now=datetime(2026, 8, day, 8, 0, tzinfo=timezone.utc),
+                )
+                for day in (1, 2, 3, 4)
+            ]
+
+            domain_root = config.backup_dir / site.domain
+            completed = sorted(
+                path.name
+                for path in domain_root.iterdir()
+                if path.is_dir() and not path.name.startswith(".")
+            )
+            self.assertEqual(
+                completed,
+                [
+                    "20260802T080000Z",
+                    "20260803T080000Z",
+                    "20260804T080000Z",
+                ],
+            )
+            self.assertFalse(results[0].directory.exists())
+            self.assertEqual(results[-1].backups_removed, 1)
+
+    def test_retention_ignores_incomplete_and_unrelated_entries(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            site_path = base / "web" / "example.com" / "public_html"
+            site_path.mkdir(parents=True)
+            config = GuardianConfig(
+                sites_root=base / "web",
+                backup_dir=base / "private-backups",
+                backup_keep_last=1,
+            )
+            site = Site("example.com", site_path)
+            first = create_database_backup(
+                config,
+                site,
+                FakeWordPress(),  # type: ignore[arg-type]
+                now=datetime(2026, 8, 1, 8, 0, tzinfo=timezone.utc),
+            )
+            domain_root = config.backup_dir / site.domain
+            incomplete = domain_root / "manual-notes"
+            incomplete.mkdir()
+            (incomplete / "readme.txt").write_text("keep me", encoding="utf-8")
+            unrelated = domain_root / "note.txt"
+            unrelated.write_text("keep me", encoding="utf-8")
+
+            second = create_database_backup(
+                config,
+                site,
+                FakeWordPress(),  # type: ignore[arg-type]
+                now=datetime(2026, 8, 2, 8, 0, tzinfo=timezone.utc),
+            )
+
+            self.assertFalse(first.directory.exists())
+            self.assertTrue(second.directory.exists())
+            self.assertTrue(incomplete.exists())
+            self.assertTrue(unrelated.exists())
+            self.assertEqual(second.backups_removed, 1)
 
     def test_failed_export_leaves_no_backup_or_staging_directory(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
