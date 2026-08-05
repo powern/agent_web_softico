@@ -2,6 +2,7 @@
 Description=Softico WordPress Guardian read-only audit
 After=network-online.target
 Wants=network-online.target
+OnSuccess=wp-guardian-mail.service
 
 [Service]
 Type=oneshot
