@@ -34,6 +34,54 @@ HTTP_404_GUARD = re.compile(
     re.I | re.X,
 )
 
+DATABASE_SUFFIXES = (
+    ".sql",
+    ".sql.gz",
+    ".sql.bz2",
+    ".sql.xz",
+    ".sql.zip",
+    ".sqlite",
+    ".sqlite3",
+    ".dump",
+)
+BACKUP_ARCHIVE_SUFFIXES = (
+    ".jpa",
+    ".wpress",
+    ".tar",
+    ".tar.gz",
+    ".tgz",
+    ".tar.bz2",
+    ".tbz2",
+    ".tar.xz",
+    ".txz",
+)
+CONTEXT_ARCHIVE_SUFFIXES = (".zip", ".gz", ".bz2", ".xz", ".7z", ".rar")
+BACKUP_DIR_MARKERS = {
+    "backup",
+    "backups",
+    "archive",
+    "archives",
+    "dump",
+    "dumps",
+    "migration",
+    "migrations",
+    "snapshot",
+    "snapshots",
+    "updraft",
+    "ai1wm-backups",
+    "wp-snapshots",
+}
+BACKUP_NAME_MARKER = re.compile(
+    r"(?:^|[-_.])(backup|back-up|dump|snapshot|archive|migration)(?:[-_.]|$)",
+    re.I,
+)
+SENSITIVE_CONFIG_COPY = re.compile(
+    r"^(?:wp-config\.php(?:\.(?:bak|backup|old|orig|save|copy|dist|txt)|~)|"
+    r"wp-config\.(?:bak|backup|old|orig|save|copy)|"
+    r"\.env(?:\.(?:bak|backup|old|orig|save|copy|local|production|prod))?)$",
+    re.I,
+)
+
 
 def sha256_file(path: Path) -> str:
     digest = hashlib.sha256()
@@ -82,6 +130,63 @@ def allowed_upload_php(relative: str, path: Path, config: GuardianConfig) -> boo
         if normalized == entry and looks_like_guard_file(path):
             return True
     return False
+
+
+def allowed_public_backup(relative: str, config: GuardianConfig) -> bool:
+    normalized = relative.replace(os.sep, "/")
+    for entry in config.allow_public_backup_paths:
+        clean = entry.replace(os.sep, "/")
+        if clean.endswith("/") and normalized.startswith(clean):
+            return True
+        if normalized == clean:
+            return True
+    return False
+
+
+def backup_context(relative: str) -> bool:
+    normalized = relative.replace(os.sep, "/").lower()
+    parts = normalized.split("/")
+    # Avoid treating plugin/theme/vendor package assets as backup storage merely
+    # because a component happens to contain a backup-related product name.
+    if any(part in {"plugins", "themes", "vendor", "node_modules"} for part in parts):
+        return BACKUP_NAME_MARKER.search(Path(normalized).name) is not None
+    return bool(BACKUP_DIR_MARKERS.intersection(parts)) or BACKUP_NAME_MARKER.search(
+        Path(normalized).name
+    ) is not None
+
+
+def classify_public_backup(relative: str) -> tuple[str, str, str] | None:
+    name = Path(relative).name.lower()
+
+    if SENSITIVE_CONFIG_COPY.fullmatch(name):
+        return (
+            "sensitive_config",
+            "CRITICAL",
+            "Sensitive configuration file or backup is inside the public web root",
+        )
+
+    if name.endswith(DATABASE_SUFFIXES):
+        return (
+            "database_dump",
+            "CRITICAL",
+            "Potential database dump is inside the public web root",
+        )
+
+    if name.endswith(BACKUP_ARCHIVE_SUFFIXES):
+        return (
+            "site_backup",
+            "HIGH",
+            "Potential site backup archive is inside the public web root",
+        )
+
+    if name.endswith(CONTEXT_ARCHIVE_SUFFIXES) and backup_context(relative):
+        return (
+            "backup_archive",
+            "HIGH",
+            "Potential backup archive is inside the public web root",
+        )
+
+    return None
 
 
 def scan_uploads(site_path: Path, config: GuardianConfig, audit: SiteAudit) -> None:
@@ -159,6 +264,61 @@ def scan_uploads(site_path: Path, config: GuardianConfig, audit: SiteAudit) -> N
         "scanned_files": scanned_files,
         "php_files": php_files,
         "suspicious": suspicious,
+        "complete": complete,
+    }
+
+
+def scan_public_backups(site_path: Path, config: GuardianConfig, audit: SiteAudit) -> None:
+    scanned = found = 0
+    complete = True
+
+    for path in site_path.rglob("*"):
+        if not path.is_file():
+            continue
+        if scanned >= config.max_scan_files:
+            complete = False
+            audit.add(
+                "public_backups",
+                "LOW",
+                "Public backup scan stopped at configured file limit",
+                limit=config.max_scan_files,
+                scanned_files=scanned,
+            )
+            break
+
+        scanned += 1
+        relative = str(path.relative_to(site_path)).replace(os.sep, "/")
+        if allowed_public_backup(relative, config):
+            continue
+
+        classification = classify_public_backup(relative)
+        if classification is None:
+            continue
+
+        kind, severity, message = classification
+        found += 1
+        try:
+            info = path.stat()
+            size = info.st_size
+            mode = oct(info.st_mode & 0o777)
+        except OSError:
+            size = -1
+            mode = "unknown"
+
+        audit.add(
+            "public_backups",
+            severity,
+            message,
+            path=str(path),
+            relative=relative,
+            kind=kind,
+            size=size,
+            mode=mode,
+        )
+
+    audit.facts["public_backups"] = {
+        "scanned": scanned,
+        "found": found,
         "complete": complete,
     }
 
