@@ -17,6 +17,7 @@ from .reporting import build_report, render_text, write_report
 from .retention import business_day_cutoff, prune_report_files
 from .runner import CommandRunner
 from .storage import Storage
+from .update_plan import build_update_plan
 from .wordpress import WordPress
 
 DEFAULT_CONFIG = Path("/etc/wp-guardian/guardian.toml")
@@ -42,6 +43,12 @@ def parser() -> argparse.ArgumentParser:
         "--backup",
         help="Backup directory name; defaults to the newest timestamped backup",
     )
+    plan = sub.add_parser(
+        "update-plan",
+        help="Build a read-only guarded update plan for one domain",
+    )
+    plan.add_argument("--domain", required=True, help="Exact configured domain")
+    plan.add_argument("--json", action="store_true", help="Print the plan as JSON")
     report = sub.add_parser("report", help="Print the latest report")
     report.add_argument("--json", action="store_true", help="Print latest JSON report")
     sub.add_parser("send-report", help="Send the latest text report by local mail transport")
@@ -61,12 +68,13 @@ def main(argv: list[str] | None = None) -> int:
             print(f"{site.domain}\t{site.path}")
         return 0
 
-    if args.command in {"backup", "verify-backup"}:
+    if args.command in {"backup", "verify-backup", "update-plan"}:
         matching = [site for site in discover_sites(config) if site.domain == args.domain]
         if len(matching) != 1:
             print(f"Domain not found or excluded: {args.domain}", file=sys.stderr)
             return 1
-        wordpress = WordPress(config, CommandRunner(config.backup_timeout))
+        runner = CommandRunner(config.backup_timeout)
+        wordpress = WordPress(config, runner)
 
         if args.command == "backup":
             try:
@@ -87,27 +95,71 @@ def main(argv: list[str] | None = None) -> int:
             )
             return 0
 
-        try:
-            result = verify_database_backup(
-                config,
-                matching[0],
-                wordpress,
-                backup_name=args.backup,
+        if args.command == "verify-backup":
+            try:
+                result = verify_database_backup(
+                    config,
+                    matching[0],
+                    wordpress,
+                    backup_name=args.backup,
+                )
+            except (BackupError, OSError) as exc:
+                print(f"Backup verification error: {exc}", file=sys.stderr)
+                return 1
+            print(f"Database backup verified for {result.domain}")
+            print(f"Directory: {result.directory}")
+            print(f"Created: {result.created_at}")
+            print(f"Compressed size: {result.compressed_size}")
+            print(f"Decompressed size: {result.decompressed_size}")
+            print(f"SHA256: {result.sha256}")
+            print(f"Table prefix: {result.table_prefix}")
+            print(f"CREATE TABLE statements: {result.create_table_statements}")
+            print(f"Matching WordPress tables: {result.matching_tables}")
+            print(f"INSERT statements: {result.insert_statements}")
+            return 0
+
+        plan_result = build_update_plan(config, matching[0], wordpress, runner)
+        if args.json:
+            print(json.dumps(plan_result.to_dict(), ensure_ascii=False, indent=2))
+        else:
+            print("SOFTICO WORDPRESS GUARDIAN UPDATE PLAN")
+            print(f"Domain: {plan_result.domain}")
+            print(f"Generated: {plan_result.generated_at}")
+            print(f"Site path: {plan_result.site_path}")
+            print(f"Ready: {'YES' if plan_result.ready else 'NO'}")
+            print(
+                "HTTPS: "
+                f"status={plan_result.http_status}, "
+                f"url={plan_result.http_url}, "
+                f"time={plan_result.http_time}"
             )
-        except (BackupError, OSError) as exc:
-            print(f"Backup verification error: {exc}", file=sys.stderr)
-            return 1
-        print(f"Database backup verified for {result.domain}")
-        print(f"Directory: {result.directory}")
-        print(f"Created: {result.created_at}")
-        print(f"Compressed size: {result.compressed_size}")
-        print(f"Decompressed size: {result.decompressed_size}")
-        print(f"SHA256: {result.sha256}")
-        print(f"Table prefix: {result.table_prefix}")
-        print(f"CREATE TABLE statements: {result.create_table_statements}")
-        print(f"Matching WordPress tables: {result.matching_tables}")
-        print(f"INSERT statements: {result.insert_statements}")
-        return 0
+            print(
+                "Core: "
+                f"version={plan_result.core_version}, "
+                f"checksum_ok={plan_result.core_checksum_ok}"
+            )
+            print(
+                "Backup: "
+                f"directory={plan_result.backup_directory}, "
+                f"created={plan_result.backup_created_at}, "
+                f"age_seconds={plan_result.backup_age_seconds}"
+            )
+            print(f"Updates: {len(plan_result.updates)}")
+            for item in plan_result.updates:
+                print(
+                    f"- {item.kind}: {item.name} "
+                    f"{item.current_version} -> {item.target_version or 'unknown'} "
+                    f"(status={item.status})"
+                )
+            if plan_result.blockers:
+                print("Blockers:")
+                for blocker in plan_result.blockers:
+                    print(f"- {blocker}")
+            if plan_result.warnings:
+                print("Warnings:")
+                for warning in plan_result.warnings:
+                    print(f"- {warning}")
+        return 2 if plan_result.blockers else 0
 
     if args.command == "report":
         target = config.report_dir / ("latest.json" if args.json else "latest.txt")
