@@ -29,6 +29,22 @@ class NonRootRuntimeTests(unittest.TestCase):
             runner.last_command,
         )
 
+    def test_database_export_is_single_domain_and_non_root(self) -> None:
+        runner = RecordingRunner()
+        config = GuardianConfig(wp_cli="/usr/local/bin/wp")
+        wordpress = WordPress(config, runner)  # type: ignore[arg-type]
+        site = Path("/home/admin/web/softico.ua/public_html")
+        target = Path("/home/admin/private-backups/wp-guardian/database.sql")
+
+        wordpress.export_database(site, target, timeout=900)
+
+        self.assertNotIn("--allow-root", runner.last_command)
+        self.assertIn(f"--path={site}", runner.last_command)
+        self.assertIn("db", runner.last_command)
+        self.assertIn("export", runner.last_command)
+        self.assertIn(str(target), runner.last_command)
+        self.assertIn("--single-transaction", runner.last_command)
+
     def test_audit_systemd_unit_runs_as_admin(self) -> None:
         unit = Path("systemd/wp-guardian.service").read_text(encoding="utf-8")
 
@@ -62,6 +78,14 @@ class NonRootRuntimeTests(unittest.TestCase):
         self.assertNotIn("VENV_NEW", installer)
         self.assertNotIn('mv "$VENV_NEW" "$VENV_DIR"', installer)
         self.assertIn('"$VENV_DIR/bin/wp-guardian" --version', installer)
+
+    def test_installer_creates_private_backup_directory(self) -> None:
+        installer = Path("scripts/install.sh").read_text(encoding="utf-8")
+
+        self.assertIn('BACKUP_DIR="/home/admin/private-backups/wp-guardian"', installer)
+        self.assertIn('"$BACKUP_DIR"', installer)
+        self.assertIn("-m 0700", installer)
+        self.assertIn("wp-guardian --config $CONFIG_FILE backup --domain softico.ua", installer)
 
 
 if __name__ == "__main__":
