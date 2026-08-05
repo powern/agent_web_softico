@@ -1,8 +1,10 @@
 # Softico WordPress Guardian
 
-`softico-wp-guardian` is a deterministic security and maintenance agent for the WordPress fleet hosted under MyVesta. Auditing remains read-only. The only current write operation is an explicit, single-domain private database backup command; automatic updates, deletion, quarantine and blocking are not implemented.
+`softico-wp-guardian` is a deterministic security and maintenance agent for the WordPress fleet hosted under MyVesta. Auditing and update planning remain read-only. Site writes are restricted to explicit private backups, explicit recovery-checkpoint preparation, and one guarded update of a previously prepared inactive plugin.
 
-## MVP capabilities
+Bulk updates, scheduled automatic updates, active-plugin updates, theme apply, WordPress core updates, database import, user deletion, quarantine and IP blocking are not implemented.
+
+## Current capabilities
 
 - discovers WordPress installations under `/home/admin/web/*/public_html`;
 - supports explicit include/exclude domain lists;
@@ -10,7 +12,7 @@
 - reports available plugin and theme updates;
 - verifies WordPress core checksums;
 - verifies official WordPress.org plugin checksums without flooding logs with expected 404 responses for premium/private plugins;
-- scans `wp-content/uploads` for executable files with allow-rules for known WPML, WPForms, Yoast and import/export service files;
+- scans `wp-content/uploads` for executable files with narrow allow-rules for known service files;
 - detects high-risk PHP constructs in unexpected uploads;
 - detects database dumps, site-backup archives and sensitive configuration copies inside public web roots;
 - lists administrators and establishes an SQLite baseline for detecting newly appearing administrators;
@@ -21,26 +23,37 @@
 - sends the latest text report through the server's local sendmail-compatible mail transport;
 - creates an explicit private compressed database backup for exactly one configured domain;
 - retains only the newest configured number of completed backups per domain;
+- verifies backup manifest, permissions, size, SHA-256, gzip completeness and WordPress SQL structure;
+- creates read-only guarded plugin/theme update plans;
+- prepares a fresh database backup and private component snapshot for one exact update;
+- applies one exact prepared update only when the component is an inactive plugin;
+- automatically restores the prepared plugin snapshot when the update or postflight fails;
 - includes separate hardened systemd services for the unprivileged audit and privileged local-mail submission.
 
 ## Safety model
 
-The `audit`, `sites` and `report` commands are read-only. Version `0.1.0` has no code paths for automatic updates, file deletion, quarantine, user deletion, configuration changes, IP blocking or rollback.
+The `audit`, `sites`, `report`, `verify-backup` and `update-plan` commands are read-only.
 
-The `backup --domain ...` command is the only site-related write operation. It writes outside the hosted web tree, requires an exact configured domain, exports only that site's database, rejects public backup destinations, uses an atomic staging directory and removes incomplete output after a failure.
+`backup --domain ...` writes only to the private backup tree. It requires an exact configured domain, exports only that site's database, rejects destinations below the hosted web tree, uses atomic staging and removes incomplete output after a failure.
 
-Backup retention deletes only completed Guardian backup directories that contain a matching `manifest.json` and `database.sql.gz`. Temporary, incomplete, unrelated and symlink entries are ignored. The newly created backup is protected during retention cleanup.
+`prepare-update` does not update WordPress. It confirms one exact advertised target, creates and verifies a fresh database backup, snapshots the exact plugin or theme path, records SHA-256 values and writes `update-preparation.json`. A failed preparation removes the new incomplete checkpoint without pruning prior backups.
 
-The agent never runs WP-CLI as root and does not use `--allow-root`. Discovery, audits, report generation and manual database backups run as `admin:admin`, which already owns and manages the hosted WordPress files.
+`apply-update` is intentionally narrower than preparation. It currently permits only `kind=plugin` when both the preparation and live WordPress state say the plugin is `inactive`. The command requires the exact domain, preparation ID, slug and target version; rejects stale, changed, reused or non-private checkpoints; repeats HTTPS/core/backup/update-target checks; then runs one exact WP-CLI plugin update. It verifies the resulting version, status, HTTPS, core checksum and official plugin checksum when available.
+
+After WP-CLI has been invoked, any failed update or postflight triggers automatic restoration of the component snapshot. This is file rollback only. The verified database backup is retained as recovery material but is not imported automatically.
+
+Backup retention deletes only completed Guardian backup directories containing matching managed files. Temporary, incomplete, unrelated and symlink entries are ignored. The newly created checkpoint is protected during retention cleanup.
+
+The agent never runs WP-CLI as root and does not use `--allow-root`. Discovery, audits, backups and guarded update commands run as `admin:admin`, which already owns and manages the hosted WordPress files.
 
 Debian Exim requires privileged access to its local spool when submitting through `/usr/sbin/sendmail`. The dedicated `wp-guardian-mail.service` therefore runs only the `send-report` operation as root. Its systemd sandbox hides `/home`, makes the system read-only, and permits writes only to the Exim spool, log and runtime paths. It does not run WP-CLI or inspect hosted sites.
 
-Persistent state and reports are stored in `/var/lib/wp-guardian`, owned by `admin:admin`. Private database backups are stored under `/home/admin/private-backups/wp-guardian`, also owned by `admin:admin` with mode `0700`. The program code and configuration remain root-owned and read-only to the runtime account.
+Persistent state and reports are stored in `/var/lib/wp-guardian`, owned by `admin:admin`. Private database backups and update checkpoints are stored under `/home/admin/private-backups/wp-guardian`, also owned by `admin:admin` with mode `0700`. Managed checkpoint files use mode `0600`. Program code and configuration remain root-owned and read-only to the runtime account.
 
 ## Requirements
 
 - Linux with Python 3.11+
-- WP-CLI with a working `wp db export` command
+- WP-CLI with working database export and plugin update commands
 - curl
 - a local sendmail-compatible mail transport such as Exim
 - existing `admin` user with access to `/home/admin/web/*/public_html`
@@ -104,7 +117,7 @@ wp-guardian-mail.service: User=root,  Group=root
 
 The audit command returns exit code `2` when a HIGH or CRITICAL finding exists. The systemd unit declares `SuccessExitStatus=2`, so a completed security audit still triggers email delivery. Genuine execution or configuration failures do not trigger delivery of an older report.
 
-## Private single-domain database backup
+## Private database backup and verification
 
 Backup settings are separate from report retention:
 
@@ -115,15 +128,19 @@ timeout = 900
 keep_last = 3
 ```
 
-Create a backup only for an exact configured domain:
+Create and verify a backup for one exact domain:
 
 ```bash
 sudo -u admin wp-guardian \
   --config /etc/wp-guardian/guardian.toml \
   backup --domain teamviewer.softico.ua
+
+sudo -u admin wp-guardian \
+  --config /etc/wp-guardian/guardian.toml \
+  verify-backup --domain teamviewer.softico.ua
 ```
 
-A successful run creates:
+A successful backup creates:
 
 ```text
 /home/admin/private-backups/wp-guardian/<domain>/<UTC-timestamp>/
@@ -133,7 +150,51 @@ A successful run creates:
 
 Directories use mode `0700`; files use mode `0600`. `manifest.json` records the domain, original site path, creation time, WordPress version, compressed size and SHA-256 checksum. The command uses `wp db export --single-transaction`, rejects empty dumps, and atomically promotes the staging directory only after compression and manifest creation succeed.
 
-After a successful backup, the agent keeps the newest `keep_last` completed copies for that domain and removes older completed Guardian copies. With the default value `3`, each domain has at most three valid managed backup directories. Retention is per domain and runs only after a new backup has completed successfully.
+Verification streams the complete gzip without extracting SQL to disk. It checks the manifest, permissions, compressed size, SHA-256, decompressed size, actual WordPress table prefix, `CREATE TABLE` statements and matching tables.
+
+After a successful backup or preparation, the agent keeps the newest `keep_last` completed copies for that domain and removes older completed Guardian copies. Retention is per domain and runs only after a new checkpoint has completed successfully.
+
+## Guarded update workflow
+
+The guarded workflow is always single-domain and single-component:
+
+1. `update-plan --domain ...` performs read-only HTTPS, core checksum, backup and exact-version preflight checks.
+2. `prepare-update` creates a new verified database backup, a private component `tar.gz`, SHA-256 metadata and a deterministic preparation ID. No WordPress update is executed.
+3. `apply-update` repeats all safety checks and applies only one inactive plugin update whose exact values match the preparation.
+
+Example:
+
+```bash
+sudo -u admin wp-guardian \
+  --config /etc/wp-guardian/guardian.toml \
+  update-plan --domain softico.ua
+
+sudo -u admin wp-guardian \
+  --config /etc/wp-guardian/guardian.toml \
+  prepare-update \
+  --domain softico.ua \
+  --kind plugin \
+  --name contact-form-7-simple-recaptcha \
+  --target-version 0.1.8
+
+sudo -u admin wp-guardian \
+  --config /etc/wp-guardian/guardian.toml \
+  apply-update \
+  --domain softico.ua \
+  --preparation-id <exact-id-from-prepare-update> \
+  --kind plugin \
+  --name contact-form-7-simple-recaptcha \
+  --target-version 0.1.8
+```
+
+The preparation must be no more than one hour old and must remain the newest verified backup. A successful apply writes `update-applied.json`. A failed apply with successful automatic file restoration writes `update-rollback.json` and exits with code `2`.
+
+Detailed contracts:
+
+- `docs/update-plan.md`
+- `docs/update-preparation.md`
+- `docs/update-apply.md`
+- `docs/backup-verification.md`
 
 ## Public backup and dump detection
 
@@ -200,7 +261,7 @@ Report retention is configured in the `[general]` section:
 retention_business_days = 3
 ```
 
-After each completed audit, the agent deletes timestamped `audit-*.txt` and `audit-*.json` files older than the current and two preceding business days. Matching historical `runs` and `site_audits` rows are deleted from SQLite. `latest.txt`, `latest.json`, private database backups and the administrator baseline are unaffected by this report policy. Database backups use their own per-domain `keep_last` policy.
+After each completed audit, the agent deletes timestamped `audit-*.txt` and `audit-*.json` files older than the current and two preceding business days. Matching historical `runs` and `site_audits` rows are deleted from SQLite. `latest.txt`, `latest.json`, private checkpoints and the administrator baseline are unaffected by this report policy. Database backups use their own per-domain `keep_last` policy.
 
 This setting does not change the global systemd journal policy and does not delete logs belonging to other services.
 
@@ -213,10 +274,13 @@ systemctl enable --now wp-guardian.timer
 systemctl list-timers wp-guardian.timer --all
 ```
 
+The scheduled unit runs audits and report delivery only. It does not run `prepare-update` or `apply-update`.
+
 ## Roadmap
 
-1. validate private database backup creation and restoration on a test domain;
-2. add a guarded single-domain plugin/theme update plan with mandatory successful backup;
-3. add reversible quarantine with manifests under `admin` ownership;
-4. add structured log ingestion;
-5. only after production validation, consider scheduled safe updates.
+1. validate the guarded inactive-plugin apply and automatic file rollback on production data;
+2. test database restoration on an isolated clone;
+3. add guarded active-plugin and theme workflows only after rollback validation;
+4. add reversible quarantine with manifests under `admin` ownership;
+5. add structured log ingestion;
+6. only after production validation, consider narrowly scheduled safe updates.
