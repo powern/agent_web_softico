@@ -8,12 +8,15 @@ from pathlib import Path
 
 from . import __version__
 from .audit import audit_all
+from .backup import BackupError, create_database_backup
 from .config import load_config
 from .discovery import discover_sites
 from .mailer import send_latest_report
 from .reporting import build_report, render_text, write_report
 from .retention import business_day_cutoff, prune_report_files
+from .runner import CommandRunner
 from .storage import Storage
+from .wordpress import WordPress
 
 DEFAULT_CONFIG = Path("/etc/wp-guardian/guardian.toml")
 
@@ -27,6 +30,8 @@ def parser() -> argparse.ArgumentParser:
     audit = sub.add_parser("audit", help="Run read-only audit")
     audit.add_argument("--domain", help="Audit only one domain")
     audit.add_argument("--json", action="store_true", help="Print JSON report")
+    backup = sub.add_parser("backup", help="Create a private database backup for one domain")
+    backup.add_argument("--domain", required=True, help="Exact configured domain to back up")
     report = sub.add_parser("report", help="Print the latest report")
     report.add_argument("--json", action="store_true", help="Print latest JSON report")
     sub.add_parser("send-report", help="Send the latest text report by local mail transport")
@@ -44,6 +49,25 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "sites":
         for site in discover_sites(config):
             print(f"{site.domain}\t{site.path}")
+        return 0
+
+    if args.command == "backup":
+        matching = [site for site in discover_sites(config) if site.domain == args.domain]
+        if len(matching) != 1:
+            print(f"Domain not found or excluded: {args.domain}", file=sys.stderr)
+            return 1
+        wordpress = WordPress(config, CommandRunner(config.backup_timeout))
+        try:
+            result = create_database_backup(config, matching[0], wordpress)
+        except (BackupError, OSError) as exc:
+            print(f"Backup error: {exc}", file=sys.stderr)
+            return 1
+        print(f"Database backup completed for {result.domain}")
+        print(f"Directory: {result.directory}")
+        print(f"Database: {result.database_path}")
+        print(f"Manifest: {result.manifest_path}")
+        print(f"Size: {result.size}")
+        print(f"SHA256: {result.sha256}")
         return 0
 
     if args.command == "report":
