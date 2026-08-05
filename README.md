@@ -16,13 +16,14 @@
 - detects world-writable files;
 - stores audit history in SQLite;
 - writes human-readable and JSON reports;
-- includes a hardened systemd service that runs as the existing `admin` account.
+- sends the latest text report through the server's local sendmail-compatible mail transport;
+- includes hardened systemd services that run the audit and mail submission as the existing `admin` account.
 
 ## Safety model
 
 Version `0.1.0` is audit-only. It has no code paths for automatic updates, file deletion, quarantine, user deletion, configuration changes, IP blocking, or rollback.
 
-The agent never runs WP-CLI as root and does not use `--allow-root`. The systemd service runs as `admin:admin`, which already owns and manages the hosted WordPress files. Root privileges are needed only once for installing files under `/opt`, `/etc`, `/usr/local/bin`, and `/etc/systemd/system`.
+The agent never runs WP-CLI as root and does not use `--allow-root`. The audit and report-mail commands run as `admin:admin`, which already owns and manages the hosted WordPress files. Root privileges are needed only for installing files under `/opt`, `/etc`, `/usr/local/bin`, and `/etc/systemd/system`.
 
 Persistent state and reports are stored in `/var/lib/wp-guardian`, owned by `admin:admin`. The program code and configuration remain root-owned and read-only to the runtime account.
 
@@ -31,8 +32,9 @@ Persistent state and reports are stored in `/var/lib/wp-guardian`, owned by `adm
 - Linux with Python 3.11+
 - WP-CLI
 - curl
+- a local sendmail-compatible mail transport such as Exim
 - existing `admin` user with access to `/home/admin/web/*/public_html`
-- sudo/root access only for installation
+- sudo/root access only for installation and systemd administration
 
 ## Development test
 
@@ -52,7 +54,15 @@ sudo bash scripts/install.sh
 
 Using `bash scripts/install.sh` avoids depending on the executable bit of the checked-out script.
 
-The installer does not enable or start the timer. Review `/etc/wp-guardian/guardian.toml` before the first run.
+The installer:
+
+- preserves an existing `/etc/wp-guardian/guardian.toml`;
+- adds the `[mail]` section once when upgrading an older installation;
+- installs the audit service, mail service and timer;
+- reloads systemd;
+- does not enable or start the timer automatically.
+
+Review `/etc/wp-guardian/guardian.toml` before the first scheduled run.
 
 ## First server test
 
@@ -68,7 +78,8 @@ To inspect the exact systemd identity before starting anything:
 
 ```bash
 systemctl cat wp-guardian.service
-grep -E '^(User|Group)=' /etc/systemd/system/wp-guardian.service
+systemctl cat wp-guardian-mail.service
+grep -E '^(User|Group)=' /etc/systemd/system/wp-guardian*.service
 ```
 
 Expected values:
@@ -78,7 +89,33 @@ User=admin
 Group=admin
 ```
 
-The audit command returns exit code `2` when a HIGH or CRITICAL finding exists. This is useful for systemd and monitoring integrations.
+The audit command returns exit code `2` when a HIGH or CRITICAL finding exists. The systemd unit declares `SuccessExitStatus=2`, so a completed security audit still triggers email delivery. Genuine execution or configuration failures do not trigger delivery of an older report.
+
+## Email reports
+
+Email delivery is configured in `/etc/wp-guardian/guardian.toml`:
+
+```toml
+[mail]
+enabled = true
+recipients = ["skr@softico.ua"]
+subject_prefix = "[WP Guardian]"
+sendmail = "/usr/sbin/sendmail"
+```
+
+The audit unit contains:
+
+```ini
+OnSuccess=wp-guardian-mail.service
+```
+
+After an audit completes with exit code `0` or `2`, systemd runs:
+
+```bash
+wp-guardian --config /etc/wp-guardian/guardian.toml send-report
+```
+
+The command reads `/var/lib/wp-guardian/reports/latest.txt` and submits it to the configured local mail transport. No interactive password or sudo prompt is involved in scheduled runs.
 
 ## Reports and state
 
@@ -88,10 +125,20 @@ The audit command returns exit code `2` when a HIGH or CRITICAL finding exists. 
 /var/lib/wp-guardian/reports/latest.json
 ```
 
+## Enabling the schedule
+
+After manual audit and email verification:
+
+```bash
+systemctl enable --now wp-guardian.timer
+systemctl list-timers wp-guardian.timer --all
+```
+
 ## Roadmap
 
 1. validate read-only results against the existing manual audit;
-2. add database backup and single-domain guarded updates under `admin`;
-3. add reversible quarantine with manifests under `admin` ownership;
-4. add notifications and structured log ingestion;
-5. only after production validation, consider scheduled safe updates.
+2. add checks for exposed database and backup archives inside public web roots;
+3. add database backup and single-domain guarded updates under `admin`;
+4. add reversible quarantine with manifests under `admin` ownership;
+5. add structured log ingestion;
+6. only after production validation, consider scheduled safe updates.
