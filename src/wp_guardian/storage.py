@@ -79,3 +79,29 @@ class Storage:
             (finished_at, report_path, run_id),
         )
         self.connection.commit()
+
+    def prune_runs_before(self, cutoff_iso: str) -> int:
+        """Remove historical audit payloads older than cutoff.
+
+        The administrator baseline is intentionally retained because it is
+        security state, not audit-log history.
+        """
+        rows = self.connection.execute(
+            "SELECT id FROM runs WHERE started_at < ?",
+            (cutoff_iso,),
+        ).fetchall()
+        run_ids = [int(row[0]) for row in rows]
+        if not run_ids:
+            return 0
+
+        placeholders = ",".join("?" for _ in run_ids)
+        self.connection.execute(
+            f"DELETE FROM site_audits WHERE run_id IN ({placeholders})",
+            run_ids,
+        )
+        self.connection.execute(
+            f"DELETE FROM runs WHERE id IN ({placeholders})",
+            run_ids,
+        )
+        self.connection.commit()
+        return len(run_ids)
