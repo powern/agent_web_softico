@@ -201,10 +201,11 @@ if [[ ! -x /usr/sbin/sendmail ]]; then
 fi
 
 # The service and timer are intentionally not enabled or started automatically.
-echo "Installed in audit plus explicit single-domain backup mode."
+echo "Installed with read-only audits, private backups and guarded single-component update workflow."
 echo "Runtime account: $RUNTIME_USER:$RUNTIME_GROUP"
 echo "Root is used only for installation and isolated local mail submission."
-echo "Audits and manual database backups run as $RUNTIME_USER."
+echo "Audits, backups and guarded update commands run as $RUNTIME_USER."
+echo "Only an explicitly prepared inactive-plugin update can currently modify WordPress files."
 echo "Successful systemd audits trigger wp-guardian-mail.service."
 echo "Audit reports and SQLite run history are retained for 3 business days by default."
 echo "Database backups retain the latest 3 completed copies per domain by default."
@@ -212,4 +213,7 @@ echo "Run as $RUNTIME_USER:"
 echo "  sudo -u $RUNTIME_USER wp-guardian --config $CONFIG_FILE sites"
 echo "  sudo -u $RUNTIME_USER wp-guardian --config $CONFIG_FILE audit --domain softico.ua"
 echo "  sudo -u $RUNTIME_USER wp-guardian --config $CONFIG_FILE backup --domain softico.ua"
+echo "  sudo -u $RUNTIME_USER wp-guardian --config $CONFIG_FILE update-plan --domain softico.ua"
+echo "  sudo -u $RUNTIME_USER wp-guardian --config $CONFIG_FILE prepare-update --help"
+echo "  sudo -u $RUNTIME_USER wp-guardian --config $CONFIG_FILE apply-update --help"
 echo "  sudo -u $RUNTIME_USER wp-guardian --config $CONFIG_FILE send-report"
