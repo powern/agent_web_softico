@@ -1,0 +1,37 @@
+[Unit]
+Description=Softico WordPress Guardian nightly read-only audit
+After=network-online.target
+Wants=network-online.target
+OnSuccess=wp-guardian-mail.service
+
+[Service]
+Type=oneshot
+User=admin
+Group=admin
+WorkingDirectory=/home/admin
+ExecStart=/opt/wp-guardian/venv/bin/wp-guardian --config /etc/wp-guardian/guardian.toml audit
+SuccessExitStatus=2
+UMask=0027
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=6
+PrivateTmp=true
+PrivateDevices=true
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+StateDirectory=wp-guardian
+StateDirectoryMode=0750
+ReadWritePaths=/var/lib/wp-guardian
+ReadWritePaths=-/home/admin/.wp-cli
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+LockPersonality=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+
+[Install]
+WantedBy=multi-user.target
