@@ -49,3 +49,9 @@ allow_php_upload_paths = [
   "wpallexport/",
   "wpallimport/",
 ]
+
+[mail]
+enabled = true
+recipients = ["skr@softico.ua"]
+subject_prefix = "[WP Guardian]"
+sendmail = "/usr/sbin/sendmail"
