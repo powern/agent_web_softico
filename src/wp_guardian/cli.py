@@ -68,6 +68,11 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Manifest: {result.manifest_path}")
         print(f"Size: {result.size}")
         print(f"SHA256: {result.sha256}")
+        print(
+            "Backup retention: "
+            f"keep_last={config.backup_keep_last}, "
+            f"removed={result.backups_removed}"
+        )
         return 0
 
     if args.command == "report":
