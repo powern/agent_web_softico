@@ -5,16 +5,22 @@ ConditionPathExists=/var/lib/wp-guardian/reports/latest.txt
 
 [Service]
 Type=oneshot
-User=admin
-Group=admin
-WorkingDirectory=/home/admin
+User=root
+Group=root
+WorkingDirectory=/var/lib/wp-guardian/reports
 ExecStart=/usr/local/bin/wp-guardian --config /etc/wp-guardian/guardian.toml send-report
 UMask=0077
 Nice=10
+
+# Exim's local sendmail-compatible submission needs privileged access to its
+# spool. Keep that privilege isolated to this tiny oneshot: it cannot access
+# hosted sites under /home and the rest of the filesystem is read-only.
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=-/var/spool/exim4 -/var/log/exim4 -/run/exim4
 PrivateTmp=true
 PrivateDevices=true
-ProtectSystem=full
-ProtectHome=read-only
+NoNewPrivileges=true
 ProtectKernelTunables=true
 ProtectKernelModules=true
 ProtectControlGroups=true
