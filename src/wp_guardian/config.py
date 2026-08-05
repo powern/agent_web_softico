@@ -21,6 +21,10 @@ class GuardianConfig:
     checks: dict[str, bool] = field(default_factory=dict)
     allowed_admin_logins: set[str] = field(default_factory=set)
     allow_php_upload_paths: tuple[str, ...] = ()
+    mail_enabled: bool = False
+    mail_recipients: tuple[str, ...] = ()
+    mail_subject_prefix: str = "[WP Guardian]"
+    sendmail: str = "/usr/sbin/sendmail"
 
     def resolve_tools(self) -> None:
         for attr in ("wp_cli", "curl"):
@@ -39,6 +43,7 @@ def load_config(path: Path) -> GuardianConfig:
     sites = raw.get("sites", {})
     audit = raw.get("audit", {})
     policy = raw.get("policy", {})
+    mail = raw.get("mail", {})
 
     config = GuardianConfig(
         sites_root=Path(general.get("sites_root", "/home/admin/web")),
@@ -56,6 +61,10 @@ def load_config(path: Path) -> GuardianConfig:
         checks={key: bool(value) for key, value in audit.items()},
         allowed_admin_logins=set(policy.get("allowed_admin_logins", [])),
         allow_php_upload_paths=tuple(policy.get("allow_php_upload_paths", [])),
+        mail_enabled=bool(mail.get("enabled", False)),
+        mail_recipients=tuple(str(item) for item in mail.get("recipients", [])),
+        mail_subject_prefix=str(mail.get("subject_prefix", "[WP Guardian]")),
+        sendmail=str(mail.get("sendmail", "/usr/sbin/sendmail")),
     )
     config.resolve_tools()
     return config
