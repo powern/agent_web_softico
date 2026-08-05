@@ -19,6 +19,21 @@ SUSPICIOUS_PATTERNS = {
     "passthru": re.compile(rb"\bpassthru\s*\(", re.I),
 }
 
+# WPForms places tiny index.php guards in cache directories. They only emit a
+# 404 response and contain no application logic. Keep this recognizer strict:
+# exactly the two expected header calls, with an optional exit/die statement.
+HTTP_404_GUARD = re.compile(
+    rb"""
+    ^\s*<\?php\s*
+    header\s*\(\s*\$_server\s*\[\s*['\"]server_protocol['\"]\s*\]
+        \s*\.\s*['\"]\s*404\s+not\s+found['\"]\s*\)\s*;\s*
+    header\s*\(\s*['\"]status\s*:\s*404\s+not\s+found['\"]\s*\)\s*;\s*
+    (?:(?:exit|die)\s*(?:\(\s*\))?\s*;\s*)?
+    (?:\?>\s*)?$
+    """,
+    re.I | re.X,
+)
+
 
 def sha256_file(path: Path) -> str:
     digest = hashlib.sha256()
@@ -40,6 +55,7 @@ def looks_like_guard_file(path: Path) -> bool:
         return False
     if not payload:
         return True
+
     normalized = re.sub(rb"\s+", b" ", payload.lower())
     safe_fragments = (
         b"<?php exit(0); ?>",
@@ -48,7 +64,10 @@ def looks_like_guard_file(path: Path) -> bool:
         b"<?php /* silence is golden",
         b"<?php die;",
     )
-    return any(fragment in normalized for fragment in safe_fragments)
+    if any(fragment in normalized for fragment in safe_fragments):
+        return True
+
+    return len(payload) <= 512 and HTTP_404_GUARD.fullmatch(payload) is not None
 
 
 def allowed_upload_php(relative: str, path: Path, config: GuardianConfig) -> bool:
