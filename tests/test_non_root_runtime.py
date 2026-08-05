@@ -29,13 +29,24 @@ class NonRootRuntimeTests(unittest.TestCase):
             runner.last_command,
         )
 
-    def test_systemd_unit_runs_as_admin(self) -> None:
+    def test_audit_systemd_unit_runs_as_admin(self) -> None:
         unit = Path("systemd/wp-guardian.service").read_text(encoding="utf-8")
 
         self.assertIn("User=admin", unit)
         self.assertIn("Group=admin", unit)
         self.assertNotIn("User=root", unit)
         self.assertNotIn("Group=root", unit)
+
+    def test_mail_unit_is_privileged_but_cannot_access_hosted_sites(self) -> None:
+        unit = Path("systemd/wp-guardian-mail.service").read_text(encoding="utf-8")
+
+        self.assertIn("User=root", unit)
+        self.assertIn("Group=root", unit)
+        self.assertIn("ProtectSystem=strict", unit)
+        self.assertIn("ProtectHome=true", unit)
+        self.assertIn("NoNewPrivileges=true", unit)
+        self.assertIn("/var/spool/exim4", unit)
+        self.assertNotIn("WorkingDirectory=/home", unit)
 
     def test_installer_uses_pep517_build_isolation(self) -> None:
         installer = Path("scripts/install.sh").read_text(encoding="utf-8")
