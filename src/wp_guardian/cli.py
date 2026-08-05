@@ -10,6 +10,7 @@ from . import __version__
 from .audit import audit_all
 from .config import load_config
 from .discovery import discover_sites
+from .mailer import send_latest_report
 from .reporting import build_report, render_text, write_report
 from .storage import Storage
 
@@ -27,6 +28,7 @@ def parser() -> argparse.ArgumentParser:
     audit.add_argument("--json", action="store_true", help="Print JSON report")
     report = sub.add_parser("report", help="Print the latest report")
     report.add_argument("--json", action="store_true", help="Print latest JSON report")
+    sub.add_parser("send-report", help="Send the latest text report by local mail transport")
     return root
 
 
@@ -49,6 +51,18 @@ def main(argv: list[str] | None = None) -> int:
             print("No report exists yet", file=sys.stderr)
             return 1
         print(target.read_text(encoding="utf-8"), end="")
+        return 0
+
+    if args.command == "send-report":
+        try:
+            sent = send_latest_report(config)
+        except (OSError, RuntimeError, ValueError) as exc:
+            print(f"Mail delivery error: {exc}", file=sys.stderr)
+            return 1
+        if sent:
+            print("Latest report submitted to the local mail transport")
+        else:
+            print("Mail delivery is disabled in the configuration")
         return 0
 
     if args.command == "audit":
