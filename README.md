@@ -20,6 +20,7 @@
 - removes expired report files and audit-run history after a configurable number of business days;
 - sends the latest text report through the server's local sendmail-compatible mail transport;
 - creates an explicit private compressed database backup for exactly one configured domain;
+- retains only the newest configured number of completed backups per domain;
 - includes separate hardened systemd services for the unprivileged audit and privileged local-mail submission.
 
 ## Safety model
@@ -27,6 +28,8 @@
 The `audit`, `sites` and `report` commands are read-only. Version `0.1.0` has no code paths for automatic updates, file deletion, quarantine, user deletion, configuration changes, IP blocking or rollback.
 
 The `backup --domain ...` command is the only site-related write operation. It writes outside the hosted web tree, requires an exact configured domain, exports only that site's database, rejects public backup destinations, uses an atomic staging directory and removes incomplete output after a failure.
+
+Backup retention deletes only completed Guardian backup directories that contain a matching `manifest.json` and `database.sql.gz`. Temporary, incomplete, unrelated and symlink entries are ignored. The newly created backup is protected during retention cleanup.
 
 The agent never runs WP-CLI as root and does not use `--allow-root`. Discovery, audits, report generation and manual database backups run as `admin:admin`, which already owns and manages the hosted WordPress files.
 
@@ -66,6 +69,7 @@ The installer:
 - preserves an existing `/etc/wp-guardian/guardian.toml`;
 - adds the `[mail]` and `[backup]` sections once when upgrading an older installation;
 - adds `retention_business_days = 3` once when upgrading an older installation;
+- adds `keep_last = 3` to an existing `[backup]` section once;
 - creates `/home/admin/private-backups/wp-guardian` as `admin:admin` with mode `0700`;
 - installs the audit service, mail service and timer;
 - reloads systemd;
@@ -108,6 +112,7 @@ Backup settings are separate from report retention:
 [backup]
 directory = "/home/admin/private-backups/wp-guardian"
 timeout = 900
+keep_last = 3
 ```
 
 Create a backup only for an exact configured domain:
@@ -128,7 +133,7 @@ A successful run creates:
 
 Directories use mode `0700`; files use mode `0600`. `manifest.json` records the domain, original site path, creation time, WordPress version, compressed size and SHA-256 checksum. The command uses `wp db export --single-transaction`, rejects empty dumps, and atomically promotes the staging directory only after compression and manifest creation succeed.
 
-Database backups are not automatically deleted by the three-business-day report policy. Backup retention will be introduced separately after restore testing.
+After a successful backup, the agent keeps the newest `keep_last` completed copies for that domain and removes older completed Guardian copies. With the default value `3`, each domain has at most three valid managed backup directories. Retention is per domain and runs only after a new backup has completed successfully.
 
 ## Public backup and dump detection
 
@@ -189,13 +194,13 @@ The command reads `/var/lib/wp-guardian/reports/latest.txt` and submits it to th
 /var/lib/wp-guardian/reports/audit-YYYYMMDD-HHMMSS.json
 ```
 
-Retention is configured in the `[general]` section:
+Report retention is configured in the `[general]` section:
 
 ```toml
 retention_business_days = 3
 ```
 
-After each completed audit, the agent deletes timestamped `audit-*.txt` and `audit-*.json` files older than the current and two preceding business days. Matching historical `runs` and `site_audits` rows are deleted from SQLite. `latest.txt`, `latest.json`, unrelated files, private database backups and the administrator baseline are retained.
+After each completed audit, the agent deletes timestamped `audit-*.txt` and `audit-*.json` files older than the current and two preceding business days. Matching historical `runs` and `site_audits` rows are deleted from SQLite. `latest.txt`, `latest.json`, private database backups and the administrator baseline are unaffected by this report policy. Database backups use their own per-domain `keep_last` policy.
 
 This setting does not change the global systemd journal policy and does not delete logs belonging to other services.
 
