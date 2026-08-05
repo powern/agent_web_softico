@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from . import maintenance
+from .update_apply import COMPONENT_NAME
 from .update_apply_all_plugins import (
     ALLOWED_PLUGIN_STATUSES,
     apply_prepared_plugin_update,
@@ -70,6 +71,10 @@ def parser() -> argparse.ArgumentParser:
         "--domain",
         help="Run guarded maintenance and the final audit only for this configured domain",
     )
+    root.add_argument(
+        "--plugin",
+        help="Update only this exact plugin slug; requires --domain",
+    )
     return root
 
 
@@ -89,11 +94,49 @@ def _selected_site_discovery(
     return discover_selected
 
 
+def _selected_plugin_detection(
+    original: Callable[
+        [WordPress, Path],
+        tuple[list[dict[str, Any]], list[maintenance.MaintenanceItem]],
+    ],
+    plugin: str,
+) -> Callable[
+    [WordPress, Path],
+    tuple[list[dict[str, Any]], list[maintenance.MaintenanceItem]],
+]:
+    def detect_selected(
+        wordpress: WordPress,
+        site_path: Path,
+    ) -> tuple[list[dict[str, Any]], list[maintenance.MaintenanceItem]]:
+        candidates, skipped = original(wordpress, site_path)
+        return (
+            [
+                row
+                for row in candidates
+                if str(row.get("name", "")).strip() == plugin
+            ],
+            [
+                item
+                for item in skipped
+                if item.kind == "plugin" and item.name == plugin
+            ],
+        )
+
+    return detect_selected
+
+
 def main(argv: list[str] | None = None) -> int:
     args = parser().parse_args(argv)
     domain = args.domain.strip().lower() if args.domain is not None else None
+    plugin = args.plugin.strip() if args.plugin is not None else None
     if args.domain is not None and not domain:
         parser().error("--domain must not be empty")
+    if args.plugin is not None and not plugin:
+        parser().error("--plugin must not be empty")
+    if plugin and not COMPONENT_NAME.fullmatch(plugin):
+        parser().error("--plugin must be an exact safe plugin slug")
+    if plugin and not domain:
+        parser().error("--plugin requires --domain")
 
     original_detect_site_updates = maintenance._detect_site_updates
     original_apply_update = maintenance.apply_prepared_plugin_update
@@ -101,6 +144,11 @@ def main(argv: list[str] | None = None) -> int:
     original_audit_all = maintenance.audit_all
 
     enable_all_plugin_updates()
+    if plugin:
+        maintenance._detect_site_updates = _selected_plugin_detection(
+            maintenance._detect_site_updates,
+            plugin,
+        )
     if domain:
         maintenance.discover_sites = _selected_site_discovery(
             original_discover_sites,
