@@ -68,25 +68,44 @@ def allowed_upload_php(relative: str, path: Path, config: GuardianConfig) -> boo
 def scan_uploads(site_path: Path, config: GuardianConfig, audit: SiteAudit) -> None:
     uploads = site_path / "wp-content" / "uploads"
     if not uploads.is_dir():
-        audit.facts["uploads_php"] = {"files": 0, "suspicious": 0}
+        audit.facts["uploads_php"] = {
+            "scanned_files": 0,
+            "php_files": 0,
+            "suspicious": 0,
+            "complete": True,
+        }
         return
 
-    found = suspicious = 0
-    for index, path in enumerate(uploads.rglob("*"), start=1):
-        if index > config.max_scan_files:
+    scanned_files = php_files = suspicious = 0
+    complete = True
+
+    for path in uploads.rglob("*"):
+        # Directories do not consume the file-scan budget. The previous
+        # implementation counted every directory entry and could stop early on
+        # deeply nested but otherwise harmless upload trees.
+        if not path.is_file():
+            continue
+
+        if scanned_files >= config.max_scan_files:
+            complete = False
             audit.add(
                 "uploads_php",
                 "MEDIUM",
                 "Uploads scan stopped at configured file limit",
                 limit=config.max_scan_files,
+                scanned_files=scanned_files,
             )
             break
-        if not path.is_file() or not is_php_like(path):
+
+        scanned_files += 1
+        if not is_php_like(path):
             continue
-        found += 1
+
+        php_files += 1
         relative = str(path.relative_to(uploads))
         if allowed_upload_php(relative, path, config):
             continue
+
         suspicious += 1
         matches: list[str] = []
         try:
@@ -96,26 +115,41 @@ def scan_uploads(site_path: Path, config: GuardianConfig, audit: SiteAudit) -> N
                     matches.append(name)
         except OSError as exc:
             matches.append(f"read_error:{exc}")
+
+        try:
+            size = path.stat().st_size
+            digest = sha256_file(path)
+        except OSError as exc:
+            size = -1
+            digest = ""
+            matches.append(f"stat_error:{exc}")
+
         audit.add(
             "uploads_php",
             "CRITICAL" if matches else "HIGH",
             "Unexpected executable file in uploads",
             path=str(path),
             relative=relative,
-            size=path.stat().st_size,
-            sha256=sha256_file(path),
+            size=size,
+            sha256=digest,
             patterns=matches,
         )
-    audit.facts["uploads_php"] = {"files": found, "suspicious": suspicious}
+
+    audit.facts["uploads_php"] = {
+        "scanned_files": scanned_files,
+        "php_files": php_files,
+        "suspicious": suspicious,
+        "complete": complete,
+    }
 
 
 def scan_world_writable(site_path: Path, config: GuardianConfig, audit: SiteAudit) -> None:
     found = scanned = 0
     for path in site_path.rglob("*"):
-        if scanned >= config.max_scan_files:
-            break
         if not path.is_file():
             continue
+        if scanned >= config.max_scan_files:
+            break
         scanned += 1
         try:
             mode = path.stat().st_mode
