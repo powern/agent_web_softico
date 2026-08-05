@@ -79,9 +79,13 @@ EOF
   exit 1
 fi
 
-# Verify the generated launcher before removing the rollback copy.
+# Verify both generated launchers before removing the rollback copy.
 if ! "$VENV_DIR/bin/wp-guardian" --version >/dev/null; then
   echo "Installed wp-guardian launcher failed its smoke test" >&2
+  exit 1
+fi
+if ! "$VENV_DIR/bin/wp-guardian-maintenance" --help >/dev/null; then
+  echo "Installed wp-guardian-maintenance launcher failed its smoke test" >&2
   exit 1
 fi
 
@@ -89,6 +93,7 @@ rm -rf "$VENV_OLD"
 trap - ERR
 
 ln -sfn "$VENV_DIR/bin/wp-guardian" /usr/local/bin/wp-guardian
+ln -sfn "$VENV_DIR/bin/wp-guardian-maintenance" /usr/local/bin/wp-guardian-maintenance
 
 install -d -o root -g "$RUNTIME_GROUP" -m 0750 /etc/wp-guardian
 install -d -o "$RUNTIME_USER" -g "$RUNTIME_GROUP" -m 0750 \
@@ -151,17 +156,12 @@ PY
 fi
 
 if ! grep -Eq '^[[:space:]]*retention_business_days[[:space:]]*=' "$CONFIG_FILE"; then
-  # Add the retention setting inside [general] without replacing any existing
-  # configuration. The Python migration is used instead of brittle line-based
-  # editing so it also works when max_scan_files is absent or reordered.
   "$PYTHON_BIN" - "$CONFIG_FILE" <<'PY'
 from pathlib import Path
 import sys
 
 path = Path(sys.argv[1])
-text = path.read_text(encoding="utf-8")
-lines = text.splitlines()
-
+lines = path.read_text(encoding="utf-8").splitlines()
 try:
     general_index = next(
         index for index, line in enumerate(lines)
@@ -175,7 +175,6 @@ for index in range(general_index + 1, len(lines)):
     if lines[index].strip().startswith("["):
         insert_at = index
         break
-
 lines.insert(insert_at, "retention_business_days = 3")
 path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
 PY
@@ -200,14 +199,17 @@ if [[ ! -x /usr/sbin/sendmail ]]; then
   echo "Warning: /usr/sbin/sendmail is unavailable; report email will fail until a sendmail-compatible local transport is installed." >&2
 fi
 
-# The service and timer are intentionally not enabled or started automatically.
-echo "Installed with read-only audits, private backups and guarded single-component update workflow."
+# Existing timer enablement is preserved. The installer does not enable a timer
+# that the administrator has not already enabled.
+echo "Installed with read-only audits, private backups and guarded nightly maintenance."
 echo "Runtime account: $RUNTIME_USER:$RUNTIME_GROUP"
 echo "Root is used only for installation and isolated local mail submission."
-echo "Audits, backups and guarded update commands run as $RUNTIME_USER."
-echo "Only an explicitly prepared inactive-plugin update can currently modify WordPress files."
-echo "Successful systemd audits trigger wp-guardian-mail.service."
-echo "Audit reports and SQLite run history are retained for 3 business days by default."
+echo "Audits, backups and maintenance updates run as $RUNTIME_USER."
+echo "Nightly maintenance automatically updates only inactive plugins with exact target versions."
+echo "Active plugins and all themes are reported but skipped automatically."
+echo "Each automatic update receives a fresh verified database backup, component snapshot and rollback protection."
+echo "After maintenance, a full fleet audit is written to latest.txt/latest.json and emailed by wp-guardian-mail.service."
+echo "Audit and maintenance reports plus SQLite run history are retained for 3 business days by default."
 echo "Database backups retain the latest 3 completed copies per domain by default."
 echo "Run as $RUNTIME_USER:"
 echo "  sudo -u $RUNTIME_USER wp-guardian --config $CONFIG_FILE sites"
@@ -216,4 +218,5 @@ echo "  sudo -u $RUNTIME_USER wp-guardian --config $CONFIG_FILE backup --domain 
 echo "  sudo -u $RUNTIME_USER wp-guardian --config $CONFIG_FILE update-plan --domain softico.ua"
 echo "  sudo -u $RUNTIME_USER wp-guardian --config $CONFIG_FILE prepare-update --help"
 echo "  sudo -u $RUNTIME_USER wp-guardian --config $CONFIG_FILE apply-update --help"
+echo "  sudo -u $RUNTIME_USER wp-guardian-maintenance --config $CONFIG_FILE"
 echo "  sudo -u $RUNTIME_USER wp-guardian --config $CONFIG_FILE send-report"
