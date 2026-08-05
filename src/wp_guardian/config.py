@@ -4,6 +4,17 @@ import shutil
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
+
+
+def string_tuple(value: Any, setting: str) -> tuple[str, ...]:
+    if value is None:
+        return ()
+    if isinstance(value, str):
+        return (value,)
+    if isinstance(value, (list, tuple)):
+        return tuple(str(item) for item in value)
+    raise ValueError(f"{setting} must be a string or an array of strings")
 
 
 @dataclass(slots=True)
@@ -60,9 +71,12 @@ def load_config(path: Path) -> GuardianConfig:
         exclude=set(sites.get("exclude", [])),
         checks={key: bool(value) for key, value in audit.items()},
         allowed_admin_logins=set(policy.get("allowed_admin_logins", [])),
-        allow_php_upload_paths=tuple(policy.get("allow_php_upload_paths", [])),
+        allow_php_upload_paths=string_tuple(
+            policy.get("allow_php_upload_paths", []),
+            "policy.allow_php_upload_paths",
+        ),
         mail_enabled=bool(mail.get("enabled", False)),
-        mail_recipients=tuple(str(item) for item in mail.get("recipients", [])),
+        mail_recipients=string_tuple(mail.get("recipients", []), "mail.recipients"),
         mail_subject_prefix=str(mail.get("subject_prefix", "[WP Guardian]")),
         sendmail=str(mail.get("sendmail", "/usr/sbin/sendmail")),
     )
