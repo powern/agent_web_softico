@@ -37,6 +37,14 @@ class NonRootRuntimeTests(unittest.TestCase):
         self.assertNotIn("User=root", unit)
         self.assertNotIn("Group=root", unit)
 
+    def test_installer_uses_pep517_build_isolation(self) -> None:
+        installer = Path("scripts/install.sh").read_text(encoding="utf-8")
+        pyproject = Path("pyproject.toml").read_text(encoding="utf-8")
+
+        self.assertNotIn("--no-build-isolation", installer)
+        self.assertIn('"$VENV_NEW/bin/python" -m pip install .', installer)
+        self.assertIn('"wheel"', pyproject)
+
 
 if __name__ == "__main__":
     unittest.main()
