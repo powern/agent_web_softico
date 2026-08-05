@@ -42,8 +42,15 @@ class NonRootRuntimeTests(unittest.TestCase):
         pyproject = Path("pyproject.toml").read_text(encoding="utf-8")
 
         self.assertNotIn("--no-build-isolation", installer)
-        self.assertIn('"$VENV_NEW/bin/python" -m pip install .', installer)
+        self.assertIn('"$VENV_DIR/bin/python" -m pip install .', installer)
         self.assertIn('"wheel"', pyproject)
+
+    def test_installer_does_not_rename_installed_virtualenv(self) -> None:
+        installer = Path("scripts/install.sh").read_text(encoding="utf-8")
+
+        self.assertNotIn("VENV_NEW", installer)
+        self.assertNotIn('mv "$VENV_NEW" "$VENV_DIR"', installer)
+        self.assertIn('"$VENV_DIR/bin/wp-guardian" --version', installer)
 
 
 if __name__ == "__main__":
