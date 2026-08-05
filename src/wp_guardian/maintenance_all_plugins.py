@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+import argparse
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from . import maintenance
 from .update_apply_all_plugins import (
@@ -62,9 +63,56 @@ def enable_all_plugin_updates() -> None:
     maintenance.apply_prepared_plugin_update = apply_prepared_plugin_update
 
 
+def parser() -> argparse.ArgumentParser:
+    root = argparse.ArgumentParser(prog="wp-guardian-maintenance")
+    root.add_argument("--config", type=Path, default=maintenance.DEFAULT_CONFIG)
+    root.add_argument(
+        "--domain",
+        help="Run guarded maintenance and the final audit only for this configured domain",
+    )
+    return root
+
+
+def _selected_site_discovery(
+    original: Callable[[maintenance.GuardianConfig], list[Any]],
+    domain: str,
+) -> Callable[[maintenance.GuardianConfig], list[Any]]:
+    def discover_selected(config: maintenance.GuardianConfig) -> list[Any]:
+        sites = original(config)
+        selected = [site for site in sites if site.domain == domain]
+        if not selected:
+            raise maintenance.MaintenanceError(
+                f"Configured WordPress site was not found for domain: {domain}"
+            )
+        return selected
+
+    return discover_selected
+
+
 def main(argv: list[str] | None = None) -> int:
+    args = parser().parse_args(argv)
     enable_all_plugin_updates()
-    return maintenance.main(argv)
+
+    core_argv = ["--config", str(args.config)]
+    if not args.domain:
+        return maintenance.main(core_argv)
+
+    domain = args.domain.strip().lower()
+    if not domain:
+        parser().error("--domain must not be empty")
+
+    original_discover_sites = maintenance.discover_sites
+    original_audit_all = maintenance.audit_all
+    maintenance.discover_sites = _selected_site_discovery(
+        original_discover_sites,
+        domain,
+    )
+    maintenance.audit_all = lambda config: original_audit_all(config, domain=domain)
+    try:
+        return maintenance.main(core_argv)
+    finally:
+        maintenance.discover_sites = original_discover_sites
+        maintenance.audit_all = original_audit_all
 
 
 if __name__ == "__main__":
