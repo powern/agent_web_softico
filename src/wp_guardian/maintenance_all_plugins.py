@@ -91,26 +91,28 @@ def _selected_site_discovery(
 
 def main(argv: list[str] | None = None) -> int:
     args = parser().parse_args(argv)
-    enable_all_plugin_updates()
-
-    core_argv = ["--config", str(args.config)]
-    if not args.domain:
-        return maintenance.main(core_argv)
-
-    domain = args.domain.strip().lower()
-    if not domain:
+    domain = args.domain.strip().lower() if args.domain is not None else None
+    if args.domain is not None and not domain:
         parser().error("--domain must not be empty")
 
+    original_detect_site_updates = maintenance._detect_site_updates
+    original_apply_update = maintenance.apply_prepared_plugin_update
     original_discover_sites = maintenance.discover_sites
     original_audit_all = maintenance.audit_all
-    maintenance.discover_sites = _selected_site_discovery(
-        original_discover_sites,
-        domain,
-    )
-    maintenance.audit_all = lambda config: original_audit_all(config, domain=domain)
+
+    enable_all_plugin_updates()
+    if domain:
+        maintenance.discover_sites = _selected_site_discovery(
+            original_discover_sites,
+            domain,
+        )
+        maintenance.audit_all = lambda config: original_audit_all(config, domain=domain)
+
     try:
-        return maintenance.main(core_argv)
+        return maintenance.main(["--config", str(args.config)])
     finally:
+        maintenance._detect_site_updates = original_detect_site_updates
+        maintenance.apply_prepared_plugin_update = original_apply_update
         maintenance.discover_sites = original_discover_sites
         maintenance.audit_all = original_audit_all
 
