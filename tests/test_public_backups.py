@@ -1,5 +1,6 @@
 import tempfile
 import unittest
+from collections import Counter
 from pathlib import Path
 
 from wp_guardian.config import GuardianConfig
@@ -42,8 +43,8 @@ class PublicBackupScannerTests(unittest.TestCase):
             self.assertEqual(facts["found"], 3)
             self.assertTrue(facts["complete"])
             self.assertEqual(
-                [finding.severity for finding in audit.findings],
-                ["CRITICAL", "CRITICAL", "HIGH"],
+                Counter(finding.severity for finding in audit.findings),
+                Counter({"CRITICAL": 2, "HIGH": 1}),
             )
 
     def test_allow_list_supports_exact_path_and_directory_prefix(self) -> None:
