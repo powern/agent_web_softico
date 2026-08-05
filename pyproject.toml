@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "softico-wp-guardian"
 version = "0.1.0"
-description = "Read-only WordPress fleet audit agent for Softico"
+description = "Guarded WordPress fleet audit and maintenance agent for Softico"
 readme = "README.md"
 requires-python = ">=3.11"
 authors = [{name = "Softico"}]
@@ -14,6 +14,7 @@ dependencies = []
 
 [project.scripts]
 wp-guardian = "wp_guardian.cli:main"
+wp-guardian-maintenance = "wp_guardian.maintenance:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
