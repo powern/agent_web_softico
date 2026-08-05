@@ -69,26 +69,25 @@ class MaintenanceResult:
     @property
     def updated(self) -> int:
         return sum(
-            item.action == "updated"
-            for site in self.sites
-            for item in site.items
+            item.action == "updated" for site in self.sites for item in site.items
         )
 
     @property
     def skipped(self) -> int:
         return sum(
-            item.action == "skipped"
-            for site in self.sites
-            for item in site.items
+            item.action == "skipped" for site in self.sites for item in site.items
         )
 
     @property
     def failed(self) -> int:
-        return sum(
+        item_failures = sum(
             item.action in {"failed", "rolled_back"}
             for site in self.sites
             for item in site.items
-        ) + sum(site.detection_error is not None for site in self.sites)
+        )
+        return item_failures + sum(
+            site.detection_error is not None for site in self.sites
+        )
 
     @property
     def rolled_back(self) -> int:
@@ -148,15 +147,26 @@ def _checked_updates(
     return [item for item in payload if isinstance(item, dict)]
 
 
-def _item_from_row(kind: str, row: dict[str, Any], action: str, message: str) -> MaintenanceItem:
-    target_raw = row.get("update_version")
-    target = str(target_raw).strip() if target_raw not in (None, "") else None
+def _target_version(row: dict[str, Any]) -> str | None:
+    raw = row.get("update_version")
+    if raw is None:
+        return None
+    value = str(raw).strip()
+    return value or None
+
+
+def _item_from_row(
+    kind: str,
+    row: dict[str, Any],
+    action: str,
+    message: str,
+) -> MaintenanceItem:
     return MaintenanceItem(
         kind=kind,
         name=str(row.get("name", "unknown")),
         status=str(row.get("status", "unknown")),
         current_version=str(row.get("version", "unknown")),
-        target_version=target,
+        target_version=_target_version(row),
         action=action,
         message=message,
     )
@@ -168,14 +178,13 @@ def _detect_site_updates(
 ) -> tuple[list[dict[str, Any]], list[MaintenanceItem]]:
     plugins = _checked_updates(wordpress, site_path, "plugin")
     themes = _checked_updates(wordpress, site_path, "theme")
-
     candidates: list[dict[str, Any]] = []
     skipped: list[MaintenanceItem] = []
 
     for row in sorted(plugins, key=lambda item: str(item.get("name", ""))):
-        status = str(row.get("status", ""))
-        target = str(row.get("update_version", "")).strip()
+        status = str(row.get("status", "")).strip()
         name = str(row.get("name", "")).strip()
+        target = _target_version(row)
         if status == "inactive" and name and target:
             candidates.append(row)
         elif status != "inactive":
@@ -206,7 +215,6 @@ def _detect_site_updates(
                 "Automatic theme updates are not enabled",
             )
         )
-
     return candidates, skipped
 
 
@@ -224,9 +232,6 @@ def _report_payload(
     audit_report: dict[str, Any],
 ) -> dict[str, Any]:
     items = [item for site in site_results for item in site.items]
-    updated = sum(item.action == "updated" for item in items)
-    skipped = sum(item.action == "skipped" for item in items)
-    rolled_back = sum(item.action == "rolled_back" for item in items)
     failed = sum(item.action in {"failed", "rolled_back"} for item in items)
     failed += sum(site.detection_error is not None for site in site_results)
     return {
@@ -235,10 +240,10 @@ def _report_payload(
         "generated_at": generated_at,
         "summary": {
             "sites": len(site_results),
-            "updated": updated,
-            "skipped": skipped,
+            "updated": sum(item.action == "updated" for item in items),
+            "skipped": sum(item.action == "skipped" for item in items),
             "failed": failed,
-            "rolled_back": rolled_back,
+            "rolled_back": sum(item.action == "rolled_back" for item in items),
             "audit_findings": audit_report.get("summary", {}).get("findings", 0),
             "audit_worst_severity": audit_report.get("summary", {}).get(
                 "worst_severity", "INFO"
@@ -320,6 +325,15 @@ def write_maintenance_report(
     return json_path, text_path
 
 
+def _stopped_item(row: dict[str, Any]) -> MaintenanceItem:
+    return _item_from_row(
+        "plugin",
+        row,
+        "skipped",
+        "Further updates on this site stopped after the preceding failure",
+    )
+
+
 def run_maintenance(
     config: GuardianConfig,
     *,
@@ -329,11 +343,10 @@ def run_maintenance(
     generated_at = started.isoformat()
     runner = CommandRunner(config.backup_timeout)
     wordpress = WordPress(config, runner)
-    sites = discover_sites(config)
     site_results: list[SiteMaintenance] = []
     updates_attempted = 0
 
-    for site in sites:
+    for site in discover_sites(config):
         site_result = SiteMaintenance(domain=site.domain)
         site_results.append(site_result)
         try:
@@ -343,11 +356,21 @@ def run_maintenance(
             site_result.detection_error = str(exc)
             continue
 
-        for row in candidates:
+        for index, row in enumerate(candidates):
             name = str(row.get("name", "")).strip()
             current = str(row.get("version", "unknown")).strip()
-            target = str(row.get("update_version", "")).strip()
+            target = _target_version(row)
             status = str(row.get("status", "unknown")).strip()
+            if target is None:
+                site_result.items.append(
+                    _item_from_row(
+                        "plugin",
+                        row,
+                        "skipped",
+                        "The update source did not provide an exact target version",
+                    )
+                )
+                continue
             if updates_attempted >= MAX_AUTOMATIC_UPDATES:
                 site_result.items.append(
                     MaintenanceItem(
@@ -408,7 +431,9 @@ def run_maintenance(
                     if rollback.is_file():
                         item.action = "rolled_back"
                         item.record_path = str(rollback)
-                # Stop changing this site after the first failed/rolled-back item.
+                site_result.items.extend(
+                    _stopped_item(remaining) for remaining in candidates[index + 1 :]
+                )
                 break
 
     audits = audit_all(config)
@@ -429,7 +454,6 @@ def run_maintenance(
     cutoff = business_day_cutoff(config.retention_business_days)
     reports_removed = prune_report_files(config.report_dir, cutoff)
     runs_removed = storage.prune_runs_before(cutoff.isoformat())
-
     return MaintenanceResult(
         generated_at=generated_at,
         sites=site_results,
@@ -453,7 +477,7 @@ def _write_failure_report(config: GuardianConfig, exc: Exception) -> tuple[Path,
             "skipped": 0,
             "failed": 1,
             "rolled_back": 0,
-            "audit_findings": 0,
+            "audit_findings": 1,
             "audit_worst_severity": "CRITICAL",
         },
         "maintenance_sites": [
