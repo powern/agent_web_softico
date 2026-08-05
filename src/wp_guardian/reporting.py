@@ -33,8 +33,19 @@ def build_report(audits: list[SiteAudit]) -> dict:
 def update_label(item: dict) -> str:
     name = str(item.get("name") or item.get("slug") or "unknown")
     current = str(item.get("version") or "?")
-    target = str(item.get("update_version") or item.get("new_version") or "?")
-    return f"{name} {current} -> {target}"
+    target = (
+        item.get("update_version")
+        or item.get("new_version")
+        or item.get("available_version")
+        or item.get("latest_version")
+    )
+    if target:
+        return f"{name} {current} -> {target}"
+
+    update_state = item.get("update")
+    if update_state:
+        return f"{name} {current} -> {update_state} (target version not provided)"
+    return f"{name} {current} -> target version not provided"
 
 
 def render_text(report: dict) -> str:
@@ -76,6 +87,14 @@ def render_text(report: dict) -> str:
                 f"php={uploads.get('php_files', 0)}, "
                 f"suspicious={uploads.get('suspicious', 0)}, "
                 f"complete={uploads.get('complete', False)}"
+            )
+        permissions = facts.get("world_writable", {})
+        if permissions:
+            lines.append(
+                "Permissions scan: "
+                f"scanned={permissions.get('scanned', 0)}, "
+                f"world_writable={permissions.get('found', 0)}, "
+                f"complete={permissions.get('complete', False)}"
             )
         plugin_checksums = facts.get("plugin_checksums", {})
         if plugin_checksums:
